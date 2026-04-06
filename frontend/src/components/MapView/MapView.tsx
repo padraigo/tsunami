@@ -316,12 +316,20 @@ export default function MapView() {
     renderFrameToCanvas(canvas, data, frames.frame_rows, frames.frame_cols)
     const dataUrl = canvas.toDataURL()
 
-    const bounds = frames.grid_bounds
+    // Normalize longitudes to -180..180 and clamp latitudes to -85..85
+    const normLon = (lon: number) => ((lon + 540) % 360) - 180
+    const clampLat = (lat: number) => Math.max(-85, Math.min(85, lat))
+    const b = frames.grid_bounds
+    const lonMin = normLon(b.lon_min)
+    const lonMax = normLon(b.lon_max)
+    const latMin = clampLat(b.lat_min)
+    const latMax = clampLat(b.lat_max)
+
     const coordinates: [[number, number], [number, number], [number, number], [number, number]] = [
-      [bounds.lon_min, bounds.lat_max],
-      [bounds.lon_max, bounds.lat_max],
-      [bounds.lon_max, bounds.lat_min],
-      [bounds.lon_min, bounds.lat_min],
+      [lonMin, latMax],
+      [lonMax, latMax],
+      [lonMax, latMin],
+      [lonMin, latMin],
     ]
 
     const addLayer = () => {
