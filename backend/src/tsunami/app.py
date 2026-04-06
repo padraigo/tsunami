@@ -47,5 +47,7 @@ def create_app() -> FastAPI:
     app.include_router(export.router, prefix="/api")
     app.include_router(bathymetry_routes.router, prefix="/api")
     app.include_router(presets.router, prefix="/api")
+    from tsunami.api import websocket as ws_module
+    app.include_router(ws_module.router, prefix="/api")
 
     return app
