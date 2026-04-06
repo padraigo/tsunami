@@ -117,6 +117,18 @@ def swe_step(state, grid, dt):
     new_hu[dry] = 0.0
     new_hv[dry] = 0.0
 
+    # Stability clamp: prevent runaway values
+    # Physical limit: even extreme tsunamis don't exceed ~50m open ocean
+    max_eta = min(100.0, float(np.max(grid.depth)) * 0.1)
+    new_eta = np.clip(new_eta, -max_eta, max_eta)
+    max_mom = max_eta * np.sqrt(G * float(np.max(grid.depth)))
+    new_hu = np.clip(new_hu, -max_mom, max_mom)
+    new_hv = np.clip(new_hv, -max_mom, max_mom)
+    # Kill NaN/Inf
+    new_eta = np.nan_to_num(new_eta, nan=0.0, posinf=0.0, neginf=0.0)
+    new_hu = np.nan_to_num(new_hu, nan=0.0, posinf=0.0, neginf=0.0)
+    new_hv = np.nan_to_num(new_hv, nan=0.0, posinf=0.0, neginf=0.0)
+
     return SWEState(eta=new_eta, hu=new_hu, hv=new_hv)
 
 

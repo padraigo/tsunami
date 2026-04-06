@@ -102,6 +102,14 @@ async def run_coarse(uid: str, db: AsyncSession = Depends(get_db)):
             cache_dir=get_settings().bathymetry_cache_dir,
         )
         depth = bathy_service.get_bathymetry(grid, source="auto")
+        # Sanitize: replace NaN, set land cells to 0 (dry), smooth for stability
+        depth = np.nan_to_num(depth, nan=0.0, posinf=0.0, neginf=0.0)
+        # Treat land (negative depth = elevation above sea level) as dry cells
+        depth = np.maximum(depth, 0.0)
+        # Smooth to avoid sharp gradients that destabilize the LF solver
+        from scipy.ndimage import uniform_filter
+        if depth.size > 100:
+            depth = uniform_filter(depth, size=3, mode='nearest')
         grid = grid.with_depth(depth)
 
         # 3. Compute displacement
@@ -176,11 +184,15 @@ async def run_coarse(uid: str, db: AsyncSession = Depends(get_db)):
         # Broadcast completion
         await broadcast(uid, {"type": "coarse_complete", "percent": 100})
 
+        max_wh = float(np.nanmax(max_heights)) if max_heights.size > 0 else 0.0
+        if not np.isfinite(max_wh):
+            max_wh = 0.0
+
         return {
             "status": "coarse_complete",
             "impacts": impacts_data,
             "suggested_zones": zones_data,
-            "max_wave_height": float(np.max(max_heights)),
+            "max_wave_height": max_wh,
         }
 
     except Exception as e:
