@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import type { CreateSimulationPayload, Preset } from '../../types'
+import { useMapPickStore } from '../../stores/mapPickStore'
 
 interface Props {
   onSubmit: (payload: CreateSimulationPayload) => void
@@ -17,6 +18,8 @@ export default function EarthquakeForm({ onSubmit, loading, preset }: Props) {
   const [durationHours, setDurationHours] = useState(1.0)
   const [gridResolutionKm, setGridResolutionKm] = useState(20.0)
 
+  const pick = useMapPickStore()
+
   // When a preset is selected, populate the form
   useEffect(() => {
     if (preset) {
@@ -27,6 +30,23 @@ export default function EarthquakeForm({ onSubmit, loading, preset }: Props) {
       setDirection(preset.direction)
     }
   }, [preset])
+
+  // When map pick updates, sync to form fields
+  useEffect(() => {
+    if (pick.lat !== null && pick.lon !== null) {
+      setLat(Math.round(pick.lat * 10) / 10)
+      setLon(Math.round(pick.lon * 10) / 10)
+      setName(`Custom (${pick.lat.toFixed(1)}, ${pick.lon.toFixed(1)})`)
+    }
+  }, [pick.lat, pick.lon])
+
+  useEffect(() => {
+    if (pick.direction !== null) setDirection(pick.direction)
+  }, [pick.direction])
+
+  useEffect(() => {
+    if (pick.magnitude !== null) setMagnitude(pick.magnitude)
+  }, [pick.magnitude])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -42,9 +62,47 @@ export default function EarthquakeForm({ onSubmit, loading, preset }: Props) {
     })
   }
 
+  const isPicking = pick.phase !== 'idle'
+
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
-      <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Earthquake Source</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Earthquake Source</h2>
+        {!isPicking ? (
+          <button
+            type="button"
+            onClick={pick.startPicking}
+            className="rounded bg-amber-600 px-2 py-0.5 text-xs font-medium hover:bg-amber-500"
+          >
+            Pick on Map
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={pick.cancel}
+            className="rounded bg-red-600 px-2 py-0.5 text-xs font-medium hover:bg-red-500"
+          >
+            Cancel
+          </button>
+        )}
+      </div>
+
+      {isPicking && (
+        <div className="rounded bg-amber-900/50 border border-amber-600/50 px-3 py-2 text-xs">
+          {pick.phase === 'picking_location' && (
+            <p>Click the map to set the <strong>epicenter location</strong>.</p>
+          )}
+          {pick.phase === 'picking_direction' && (
+            <p>
+              Now drag away from the epicenter to set <strong>direction</strong> and <strong>magnitude</strong>. Click to confirm.
+              <br />
+              <span className="text-amber-300">
+                Dir: {pick.direction ?? '—'}°  |  Mag: {pick.magnitude ?? '—'}
+              </span>
+            </p>
+          )}
+        </div>
+      )}
 
       <label className="block">
         <span className="text-xs text-slate-400">Name</span>
@@ -95,7 +153,7 @@ export default function EarthquakeForm({ onSubmit, loading, preset }: Props) {
         Smaller grid = more detail but slower. Try 20-50km for quick runs, 5-10km for detail.
       </p>
 
-      <button type="submit" disabled={loading} className="w-full rounded bg-emerald-600 py-2 text-sm font-medium hover:bg-emerald-500 disabled:opacity-50">
+      <button type="submit" disabled={loading || isPicking} className="w-full rounded bg-emerald-600 py-2 text-sm font-medium hover:bg-emerald-500 disabled:opacity-50">
         {loading ? 'Creating...' : 'Create Simulation'}
       </button>
     </form>
