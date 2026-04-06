@@ -5,6 +5,7 @@ import type {
   Preset,
   CreateSimulationPayload,
   CreateFocusZonePayload,
+  FramesResponse,
 } from '../types'
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -50,6 +51,7 @@ export const api = {
       apiFetch<CoarseResult>(`/simulations/${uid}/run-coarse`, { method: 'POST' }),
     coarseResult: (uid: string) =>
       apiFetch<CoarseResult>(`/simulations/${uid}/coarse-result`),
+    frames: (uid: string) => apiFetch<FramesResponse>(`/simulations/${uid}/frames`),
     exportUrl: (uid: string) => `/api/simulations/${uid}/export?format=geojson`,
   },
   presets: {

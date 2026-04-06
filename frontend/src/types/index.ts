@@ -94,3 +94,20 @@ export interface CreateFocusZonePayload {
   source: string
   grid_resolution_m?: number
 }
+
+export interface FrameData {
+  time_s: number
+  eta_base64: string
+}
+
+export interface FramesResponse {
+  grid_bounds: {
+    lat_min: number
+    lat_max: number
+    lon_min: number
+    lon_max: number
+  }
+  frame_rows: number
+  frame_cols: number
+  frames: FrameData[]
+}

@@ -2,12 +2,71 @@ import { useEffect, useRef } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useSimulationStore } from '../../stores/simulationStore'
+import TimelineSlider from './TimelineSlider'
+
+function decodeFrame(base64: string, _rows: number, _cols: number): Float32Array {
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return new Float32Array(bytes.buffer)
+}
+
+function renderFrameToCanvas(
+  canvas: HTMLCanvasElement,
+  data: Float32Array,
+  rows: number,
+  cols: number,
+): void {
+  canvas.width = cols
+  canvas.height = rows
+  const ctx = canvas.getContext('2d')!
+  const imageData = ctx.createImageData(cols, rows)
+  for (let i = 0; i < data.length; i++) {
+    const v = Math.abs(data[i])
+    const idx = i * 4
+    if (v < 0.01) {
+      // Transparent
+      imageData.data[idx] = 0
+      imageData.data[idx + 1] = 0
+      imageData.data[idx + 2] = 0
+      imageData.data[idx + 3] = 0
+    } else if (v < 0.5) {
+      // Blue
+      const t = v / 0.5
+      imageData.data[idx] = 0
+      imageData.data[idx + 1] = Math.round(100 + 155 * t)
+      imageData.data[idx + 2] = 255
+      imageData.data[idx + 3] = Math.round(100 + 155 * t)
+    } else if (v < 2) {
+      // Green to yellow
+      const t = (v - 0.5) / 1.5
+      imageData.data[idx] = Math.round(255 * t)
+      imageData.data[idx + 1] = 200
+      imageData.data[idx + 2] = Math.round(255 * (1 - t))
+      imageData.data[idx + 3] = 200
+    } else if (v < 5) {
+      // Yellow to red
+      const t = (v - 2) / 3
+      imageData.data[idx] = 255
+      imageData.data[idx + 1] = Math.round(200 * (1 - t))
+      imageData.data[idx + 2] = 0
+      imageData.data[idx + 3] = 220
+    } else {
+      // Red/dark
+      imageData.data[idx] = 200
+      imageData.data[idx + 1] = 0
+      imageData.data[idx + 2] = 0
+      imageData.data[idx + 3] = 240
+    }
+  }
+  ctx.putImageData(imageData, 0, 0)
+}
 
 export default function MapView() {
   const mapContainer = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
-  const { current, coarseResult } = useSimulationStore()
+  const { current, coarseResult, frames, currentFrameIndex } = useSimulationStore()
 
   useEffect(() => {
     if (!mapContainer.current || mapRef.current) return
@@ -129,5 +188,54 @@ export default function MapView() {
     else map.on('load', addZones)
   }, [current?.focus_zones])
 
-  return <div ref={mapContainer} className="h-full w-full" />
+  // Wave animation frame
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !frames) return
+
+    const frame = frames.frames[currentFrameIndex]
+    if (!frame) return
+
+    const canvas = document.createElement('canvas')
+    const data = decodeFrame(frame.eta_base64, frames.frame_rows, frames.frame_cols)
+    renderFrameToCanvas(canvas, data, frames.frame_rows, frames.frame_cols)
+    const dataUrl = canvas.toDataURL()
+
+    const bounds = frames.grid_bounds
+    const coordinates: [[number, number], [number, number], [number, number], [number, number]] = [
+      [bounds.lon_min, bounds.lat_max], // top-left
+      [bounds.lon_max, bounds.lat_max], // top-right
+      [bounds.lon_max, bounds.lat_min], // bottom-right
+      [bounds.lon_min, bounds.lat_min], // bottom-left
+    ]
+
+    const addLayer = () => {
+      if (map.getSource('wave-frame')) {
+        (map.getSource('wave-frame') as any).updateImage({ url: dataUrl, coordinates })
+      } else {
+        map.addSource('wave-frame', {
+          type: 'image',
+          url: dataUrl,
+          coordinates,
+        })
+        const beforeLayer = map.getLayer('impact-circles') ? 'impact-circles' : undefined
+        map.addLayer({
+          id: 'wave-frame-layer',
+          type: 'raster',
+          source: 'wave-frame',
+          paint: { 'raster-opacity': 0.7 },
+        }, beforeLayer)
+      }
+    }
+
+    if (map.loaded()) addLayer()
+    else map.on('load', addLayer)
+  }, [frames, currentFrameIndex])
+
+  return (
+    <>
+      <div ref={mapContainer} className="h-full w-full" />
+      <TimelineSlider />
+    </>
+  )
 }
