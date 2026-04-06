@@ -109,5 +109,6 @@ export interface FramesResponse {
   }
   frame_rows: number
   frame_cols: number
+  depth_base64?: string  // Downsampled depth grid for land masking
   frames: FrameData[]
 }

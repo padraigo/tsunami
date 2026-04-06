@@ -60,10 +60,15 @@ def _save_frames(frames: list[tuple[float, SWEState]], grid, results_dir: Path, 
             "eta_base64": base64.b64encode(eta_bytes).decode("ascii"),
         })
 
+    # Downsample depth grid for land masking on the frontend
+    depth_ds = _downsample(grid.depth)
+    depth_bytes = depth_ds.astype(np.float32).tobytes()
+
     payload = {
         "grid_bounds": grid_bounds,
         "frame_rows": frame_rows,
         "frame_cols": frame_cols,
+        "depth_base64": base64.b64encode(depth_bytes).decode("ascii"),
         "frames": frame_data,
     }
     with open(results_dir / "frames.json", "w") as f:

@@ -17,6 +17,7 @@ function renderFrameToCanvas(
   data: Float32Array,
   rows: number,
   cols: number,
+  depth?: Float32Array,
 ): void {
   canvas.width = cols
   canvas.height = rows
@@ -25,7 +26,9 @@ function renderFrameToCanvas(
   for (let i = 0; i < data.length; i++) {
     const v = Math.abs(data[i])
     const idx = i * 4
-    if (v < 0.01) {
+    // Mask land cells (depth <= 0) and tiny values
+    const isLand = depth ? depth[i] <= 0 : false
+    if (isLand || v < 0.01) {
       imageData.data[idx] = 0
       imageData.data[idx + 1] = 0
       imageData.data[idx + 2] = 0
@@ -313,7 +316,10 @@ export default function MapView() {
 
     const canvas = document.createElement('canvas')
     const data = decodeFrame(frame.eta_base64, frames.frame_rows, frames.frame_cols)
-    renderFrameToCanvas(canvas, data, frames.frame_rows, frames.frame_cols)
+    const depth = frames.depth_base64
+      ? decodeFrame(frames.depth_base64, frames.frame_rows, frames.frame_cols)
+      : undefined
+    renderFrameToCanvas(canvas, data, frames.frame_rows, frames.frame_cols, depth)
     const dataUrl = canvas.toDataURL()
 
     // Clamp latitudes to MapLibre's Mercator limit, pass longitudes as-is
