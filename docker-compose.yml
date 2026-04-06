@@ -1,0 +1,77 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - tsunami-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      TSUNAMI_REDIS_URL: redis://redis:6379/0
+      TSUNAMI_DATABASE_URL: sqlite+aiosqlite:////app/data/tsunami.db
+    volumes:
+      - backend-data:/app/data
+    networks:
+      - tsunami-net
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  worker:
+    build:
+      context: backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: >
+      celery -A tsunami.workers.celery_app:celery_app worker
+      --loglevel=info --concurrency=2
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      TSUNAMI_REDIS_URL: redis://redis:6379/0
+      TSUNAMI_DATABASE_URL: sqlite+aiosqlite:////app/data/tsunami.db
+    volumes:
+      - backend-data:/app/data
+    networks:
+      - tsunami-net
+
+  frontend:
+    build:
+      context: frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - tsunami-net
+
+volumes:
+  backend-data:
+
+networks:
+  tsunami-net:
+    driver: bridge
