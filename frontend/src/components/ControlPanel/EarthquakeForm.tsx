@@ -1,12 +1,13 @@
-import { useState } from 'react'
-import type { CreateSimulationPayload } from '../../types'
+import { useState, useEffect } from 'react'
+import type { CreateSimulationPayload, Preset } from '../../types'
 
 interface Props {
   onSubmit: (payload: CreateSimulationPayload) => void
   loading?: boolean
+  preset?: Preset | null
 }
 
-export default function EarthquakeForm({ onSubmit, loading }: Props) {
+export default function EarthquakeForm({ onSubmit, loading, preset }: Props) {
   const [name, setName] = useState('New Simulation')
   const [lat, setLat] = useState(0)
   const [lon, setLon] = useState(100)
@@ -15,6 +16,17 @@ export default function EarthquakeForm({ onSubmit, loading }: Props) {
   const [depthKm, setDepthKm] = useState(15)
   const [durationHours, setDurationHours] = useState(1.0)
   const [gridResolutionKm, setGridResolutionKm] = useState(20.0)
+
+  // When a preset is selected, populate the form
+  useEffect(() => {
+    if (preset) {
+      setName(preset.name)
+      setLat(preset.lat)
+      setLon(preset.lon)
+      setMagnitude(preset.magnitude)
+      setDirection(preset.direction)
+    }
+  }, [preset])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
