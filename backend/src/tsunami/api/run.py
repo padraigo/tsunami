@@ -1,5 +1,7 @@
 """Simulation execution endpoints."""
 
+import asyncio
+import base64
 import json
 from pathlib import Path
 
@@ -9,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tsunami.api.deps import get_db
+from tsunami.api.websocket import broadcast
 from tsunami.bathymetry.service import BathymetryService
 from tsunami.config import get_settings
 from tsunami.models import Simulation, SimulationStatus
@@ -19,6 +22,52 @@ from tsunami.simulation.okada import magnitude_to_fault_params, compute_displace
 from tsunami.simulation.swe_solver import SWESolverConfig, SWEState, run_swe
 
 router = APIRouter(tags=["run"])
+
+
+def _downsample(arr: np.ndarray, target: int = 50) -> np.ndarray:
+    """Stride-sample a 2D array to approximately target×target."""
+    ny, nx = arr.shape
+    sy = max(1, ny // target)
+    sx = max(1, nx // target)
+    return arr[::sy, ::sx]
+
+
+def _save_frames(frames: list[tuple[float, SWEState]], grid, results_dir: Path, max_frames: int = 15):
+    """Downsample and persist frame snapshots for frontend animation."""
+    if not frames:
+        return
+    step = max(1, len(frames) // max_frames)
+    selected = frames[::step]
+
+    grid_bounds = {
+        "lat_min": float(grid.lat[0]),
+        "lat_max": float(grid.lat[-1]),
+        "lon_min": float(grid.lon[0]),
+        "lon_max": float(grid.lon[-1]),
+    }
+
+    sample = _downsample(selected[0][1].eta)
+    frame_rows, frame_cols = sample.shape
+
+    frame_data = []
+    for t, state in selected:
+        eta = _downsample(state.eta)
+        # Clip tiny values for better compression
+        eta = np.where(np.abs(eta) < 0.001, 0.0, eta)
+        eta_bytes = eta.astype(np.float32).tobytes()
+        frame_data.append({
+            "time_s": round(t, 1),
+            "eta_base64": base64.b64encode(eta_bytes).decode("ascii"),
+        })
+
+    payload = {
+        "grid_bounds": grid_bounds,
+        "frame_rows": frame_rows,
+        "frame_cols": frame_cols,
+        "frames": frame_data,
+    }
+    with open(results_dir / "frames.json", "w") as f:
+        json.dump(payload, f)
 
 
 @router.post("/simulations/{uid}/run-coarse")
@@ -57,20 +106,32 @@ async def run_coarse(uid: str, db: AsyncSession = Depends(get_db)):
         )
         displacement = compute_displacement(fault, grid)
 
-        # 4. Run SWE
+        # 4. Run SWE with progress broadcasting
         config = SWESolverConfig(
             duration_seconds=sim.duration_hours * 3600,
             output_interval_seconds=max(300.0, sim.duration_hours * 3600 / 20),
             cfl=0.4,
         )
         frames: list[tuple[float, SWEState]] = []
+        loop = asyncio.get_event_loop()
+        frame_index = 0
 
         def save_frame(t: float, state: SWEState):
+            nonlocal frame_index
             frames.append((t, SWEState(
                 eta=state.eta.copy(), hu=state.hu.copy(), hv=state.hv.copy(),
             )))
+            percent = min(100.0, t / config.duration_seconds * 100)
+            msg = {
+                "type": "coarse_progress",
+                "percent": round(percent, 1),
+                "time_simulated_s": round(t, 1),
+                "frame_index": frame_index,
+            }
+            frame_index += 1
+            loop.call_soon_threadsafe(asyncio.ensure_future, broadcast(uid, msg))
 
-        run_swe(grid, displacement, config, frame_callback=save_frame)
+        await asyncio.to_thread(run_swe, grid, displacement, config, save_frame)
 
         # 5. Compute max heights and detect impacts
         max_heights = np.zeros(grid.depth.shape)
@@ -87,6 +148,7 @@ async def run_coarse(uid: str, db: AsyncSession = Depends(get_db)):
         results_dir.mkdir(parents=True, exist_ok=True)
 
         np.save(str(results_dir / "max_heights.npy"), max_heights)
+        _save_frames(frames, grid, results_dir)
 
         impacts_data = [
             {"lat": imp.lat, "lon": imp.lon, "max_height": imp.max_height,
@@ -105,6 +167,9 @@ async def run_coarse(uid: str, db: AsyncSession = Depends(get_db)):
         sim.coarse_result_path = str(results_dir)
         sim.status = SimulationStatus.COARSE_COMPLETE
         await db.commit()
+
+        # Broadcast completion
+        await broadcast(uid, {"type": "coarse_complete", "percent": 100})
 
         return {
             "status": "coarse_complete",
