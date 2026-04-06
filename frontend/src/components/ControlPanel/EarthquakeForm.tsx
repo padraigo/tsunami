@@ -13,6 +13,8 @@ export default function EarthquakeForm({ onSubmit, loading }: Props) {
   const [magnitude, setMagnitude] = useState(8.0)
   const [direction, setDirection] = useState(270)
   const [depthKm, setDepthKm] = useState(15)
+  const [durationHours, setDurationHours] = useState(1.0)
+  const [gridResolutionKm, setGridResolutionKm] = useState(20.0)
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -23,6 +25,8 @@ export default function EarthquakeForm({ onSubmit, loading }: Props) {
       earthquake_magnitude: magnitude,
       earthquake_direction: direction,
       earthquake_depth_km: depthKm,
+      duration_hours: durationHours,
+      grid_resolution_km: gridResolutionKm,
     })
   }
 
@@ -61,6 +65,23 @@ export default function EarthquakeForm({ onSubmit, loading }: Props) {
         <span className="text-xs text-slate-400">Depth (km)</span>
         <input type="number" step="1" min={0} max={700} value={depthKm} onChange={(e) => setDepthKm(+e.target.value)} className="mt-1 block w-full rounded bg-slate-700 px-2 py-1 text-sm" />
       </label>
+
+      <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400 pt-2">Simulation Settings</h2>
+
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block">
+          <span className="text-xs text-slate-400">Duration (hours)</span>
+          <input type="number" step="0.5" min={0.5} max={48} value={durationHours} onChange={(e) => setDurationHours(+e.target.value)} className="mt-1 block w-full rounded bg-slate-700 px-2 py-1 text-sm" />
+        </label>
+        <label className="block">
+          <span className="text-xs text-slate-400">Grid (km)</span>
+          <input type="number" step="1" min={1} max={100} value={gridResolutionKm} onChange={(e) => setGridResolutionKm(+e.target.value)} className="mt-1 block w-full rounded bg-slate-700 px-2 py-1 text-sm" />
+        </label>
+      </div>
+
+      <p className="text-xs text-slate-500">
+        Smaller grid = more detail but slower. Try 20-50km for quick runs, 5-10km for detail.
+      </p>
 
       <button type="submit" disabled={loading} className="w-full rounded bg-emerald-600 py-2 text-sm font-medium hover:bg-emerald-500 disabled:opacity-50">
         {loading ? 'Creating...' : 'Create Simulation'}
