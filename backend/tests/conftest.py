@@ -24,7 +24,7 @@ def gravity():
 
 
 @pytest.fixture
-def app(tmp_path):
+async def app(tmp_path):
     """Create a test FastAPI app with a temporary database."""
     import os
     old_data_dir = os.environ.get("TSUNAMI_DATA_DIR")
@@ -33,10 +33,16 @@ def app(tmp_path):
     os.environ["TSUNAMI_DATABASE_URL"] = f"sqlite+aiosqlite:///{tmp_path / 'test.db'}"
     from tsunami.config import get_settings
     get_settings.cache_clear()
-    from tsunami.api.deps import reset_engine
+    from tsunami.api.deps import reset_engine, _get_engine
     reset_engine()
     application = create_app()
+    # Create tables (lifespan not triggered by ASGITransport)
+    from tsunami.database import Base
+    engine = _get_engine()
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     yield application
+    await engine.dispose()
     # Restore environment
     if old_data_dir is None:
         os.environ.pop("TSUNAMI_DATA_DIR", None)
