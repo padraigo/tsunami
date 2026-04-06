@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "tsunami": {
+      "command": "node",
+      "args": ["/home/padraigo/Documents/tsunami/mcp-server/dist/index.js"],
+      "env": {
+        "TSUNAMI_BACKEND_URL": "http://localhost:8001"
+      }
+    }
+  }
+}
