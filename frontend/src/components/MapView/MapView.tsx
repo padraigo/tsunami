@@ -316,20 +316,15 @@ export default function MapView() {
     renderFrameToCanvas(canvas, data, frames.frame_rows, frames.frame_cols)
     const dataUrl = canvas.toDataURL()
 
-    // Normalize longitudes to -180..180 and clamp latitudes to -85..85
-    const normLon = (lon: number) => ((lon + 540) % 360) - 180
+    // Clamp latitudes to MapLibre's Mercator limit, pass longitudes as-is
+    // (MapLibre handles unwrapped longitudes like -187 or 182 correctly)
     const clampLat = (lat: number) => Math.max(-85, Math.min(85, lat))
     const b = frames.grid_bounds
-    const lonMin = normLon(b.lon_min)
-    const lonMax = normLon(b.lon_max)
-    const latMin = clampLat(b.lat_min)
-    const latMax = clampLat(b.lat_max)
-
     const coordinates: [[number, number], [number, number], [number, number], [number, number]] = [
-      [lonMin, latMax],
-      [lonMax, latMax],
-      [lonMax, latMin],
-      [lonMin, latMin],
+      [b.lon_min, clampLat(b.lat_max)],
+      [b.lon_max, clampLat(b.lat_max)],
+      [b.lon_max, clampLat(b.lat_min)],
+      [b.lon_min, clampLat(b.lat_min)],
     ]
 
     const addLayer = () => {
