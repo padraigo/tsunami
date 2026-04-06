@@ -70,6 +70,10 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
         try { coarseResult = await api.run.coarseResult(uid) } catch { /* no results yet */ }
       }
       set({ current: sim, coarseResult, frames: null, currentFrameIndex: 0, isPlaying: false, progress: 0, loading: false })
+      // Fetch frames for completed simulations
+      if (coarseResult) {
+        await get().fetchFrames()
+      }
     } catch (e: any) {
       set({ error: e.message, loading: false })
     }

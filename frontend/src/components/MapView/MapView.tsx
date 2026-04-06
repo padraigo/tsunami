@@ -233,9 +233,9 @@ export default function MapView() {
   }, [frames, currentFrameIndex])
 
   return (
-    <>
+    <div className="relative h-full w-full">
       <div ref={mapContainer} className="h-full w-full" />
       <TimelineSlider />
-    </>
+    </div>
   )
 }
