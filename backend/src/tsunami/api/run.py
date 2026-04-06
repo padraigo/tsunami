@@ -101,7 +101,7 @@ async def run_coarse(uid: str, db: AsyncSession = Depends(get_db)):
         bathy_service = BathymetryService(
             cache_dir=get_settings().bathymetry_cache_dir,
         )
-        depth = bathy_service.get_bathymetry(grid, source="procedural")
+        depth = bathy_service.get_bathymetry(grid, source="auto")
         grid = grid.with_depth(depth)
 
         # 3. Compute displacement
