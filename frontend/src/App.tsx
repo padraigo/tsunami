@@ -1,7 +1,23 @@
+import Layout from './components/Layout'
+import TopBar from './components/TopBar'
+import ControlPanel from './components/ControlPanel'
+import MapView from './components/MapView/MapView'
+import { useSimulationStore } from './stores/simulationStore'
+import { api } from './services/api'
+
 export default function App() {
+  const current = useSimulationStore((s) => s.current)
+
+  const handleExport = () => {
+    if (!current) return
+    window.open(api.run.exportUrl(current.uid), '_blank')
+  }
+
   return (
-    <div className="flex h-screen w-screen items-center justify-center bg-slate-900 text-white">
-      <h1 className="text-3xl font-bold">Tsunami Simulator</h1>
-    </div>
+    <Layout
+      topBar={<TopBar onExport={current?.status === 'coarse_complete' ? handleExport : undefined} />}
+      sidebar={<ControlPanel />}
+      map={<MapView />}
+    />
   )
 }
