@@ -23,11 +23,17 @@ function renderFrameToCanvas(
   canvas.height = rows
   const ctx = canvas.getContext('2d')!
   const imageData = ctx.createImageData(cols, rows)
+  // Data is stored row 0 = south (lat_min), but canvas row 0 = top.
+  // MapLibre image source maps top-left to [lon_min, lat_max].
+  // So we flip vertically: canvas row r reads data row (rows-1-r).
   for (let i = 0; i < data.length; i++) {
-    const v = Math.abs(data[i])
+    const srcRow = Math.floor(i / cols)
+    const srcCol = i % cols
+    const flippedRow = rows - 1 - srcRow
+    const dataIdx = flippedRow * cols + srcCol
+    const v = Math.abs(data[dataIdx])
     const idx = i * 4
-    // Mask land cells (depth <= 0) and tiny values
-    const isLand = depth ? depth[i] <= 0 : false
+    const isLand = depth ? depth[dataIdx] <= 0 : false
     if (isLand || v < 0.01) {
       imageData.data[idx] = 0
       imageData.data[idx + 1] = 0
