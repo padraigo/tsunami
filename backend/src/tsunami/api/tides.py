@@ -97,10 +97,14 @@ async def compute_tides(body: TideComputeRequest):
         eta[land_mask] = 0.0
 
     # Downsample if grid is large
-    def downsample(arr, target=80):
-        ny, nx = arr.shape
-        sy = max(1, ny // target)
-        sx = max(1, nx // target)
+    target = 80
+    ny, nx = tide_frames[0][1].shape
+    sy = max(1, ny // target)
+    sx = max(1, nx // target)
+    ds_lat = grid.lat[::sy]
+    ds_lon = grid.lon[::sx]
+
+    def downsample(arr: np.ndarray) -> np.ndarray:
         return arr[::sy, ::sx]
 
     sample = downsample(tide_frames[0][1])
@@ -115,12 +119,13 @@ async def compute_tides(body: TideComputeRequest):
             "eta_base64": base64.b64encode(eta_ds.tobytes()).decode("ascii"),
         })
 
+    # Use actual downsampled grid bounds (not original) to avoid shift
     payload = {
         "grid_bounds": {
-            "lat_min": float(grid.lat[0]),
-            "lat_max": float(grid.lat[-1]),
-            "lon_min": float(grid.lon[0]),
-            "lon_max": float(grid.lon[-1]),
+            "lat_min": float(ds_lat[0]),
+            "lat_max": float(ds_lat[-1]),
+            "lon_min": float(ds_lon[0]),
+            "lon_max": float(ds_lon[-1]),
         },
         "frame_rows": frame_rows,
         "frame_cols": frame_cols,
