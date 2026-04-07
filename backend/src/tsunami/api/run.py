@@ -3,21 +3,29 @@
 import asyncio
 import base64
 import json
+import pickle
 from pathlib import Path
 
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from tsunami.api.deps import get_db
 from tsunami.api.websocket import broadcast
 from tsunami.bathymetry.service import BathymetryService
 from tsunami.config import get_settings
-from tsunami.models import Simulation, SimulationStatus
+from tsunami.models import FocusZone, Simulation, SimulationStatus, ZoneSource, ZoneStatus
 from tsunami.schemas import CoarseResultRead
-from tsunami.simulation.grid import create_grid, domain_for_magnitude
+from tsunami.simulation.boussinesq import (
+    BoussinesqConfig,
+    create_boundary_conditions_from_swe,
+    run_boussinesq,
+)
+from tsunami.simulation.grid import Grid, create_grid, domain_for_magnitude
 from tsunami.simulation.impact import detect_coastal_impacts, suggest_focus_zones
+from tsunami.simulation.inundation import compute_inundation
 from tsunami.simulation.okada import magnitude_to_fault_params, compute_displacement
 from tsunami.simulation.swe_solver import SWESolverConfig, SWEState, run_swe
 
@@ -32,7 +40,7 @@ def _downsample(arr: np.ndarray, target: int = 50) -> np.ndarray:
     return arr[::sy, ::sx]
 
 
-def _save_frames(frames: list[tuple[float, SWEState]], grid, results_dir: Path, max_frames: int = 15):
+def _save_frames(frames: list[tuple[float, SWEState]], grid: Grid, results_dir: Path, max_frames: int = 15):
     """Downsample and persist frame snapshots for frontend animation."""
     if not frames:
         return
@@ -52,7 +60,6 @@ def _save_frames(frames: list[tuple[float, SWEState]], grid, results_dir: Path, 
     frame_data = []
     for t, state in selected:
         eta = _downsample(state.eta)
-        # Clip tiny values for better compression
         eta = np.where(np.abs(eta) < 0.001, 0.0, eta)
         eta_bytes = eta.astype(np.float32).tobytes()
         frame_data.append({
@@ -60,7 +67,6 @@ def _save_frames(frames: list[tuple[float, SWEState]], grid, results_dir: Path, 
             "eta_base64": base64.b64encode(eta_bytes).decode("ascii"),
         })
 
-    # Downsample depth grid for land masking on the frontend
     depth_ds = _downsample(grid.depth)
     depth_bytes = depth_ds.astype(np.float32).tobytes()
 
@@ -75,6 +81,85 @@ def _save_frames(frames: list[tuple[float, SWEState]], grid, results_dir: Path, 
         json.dump(payload, f)
 
 
+def _save_coarse_frames(frames: list[tuple[float, SWEState]], grid: Grid, results_dir: Path):
+    """Save full-resolution coarse frames for boundary condition extraction."""
+    times = [t for t, _ in frames]
+    etas = [state.eta for _, state in frames]
+    hus = [state.hu for _, state in frames]
+    hvs = [state.hv for _, state in frames]
+    np.savez_compressed(
+        str(results_dir / "coarse_frames.npz"),
+        times=np.array(times),
+        etas=np.array(etas),
+        hus=np.array(hus),
+        hvs=np.array(hvs),
+        lat=grid.lat,
+        lon=grid.lon,
+        depth=grid.depth,
+    )
+
+
+def _load_coarse_frames(results_dir: Path) -> tuple[Grid, list[tuple[float, SWEState]]]:
+    """Load saved coarse frames for BC extraction."""
+    data = np.load(str(results_dir / "coarse_frames.npz"))
+    grid = Grid(lat=data["lat"], lon=data["lon"], depth=data["depth"])
+    frames = []
+    for i in range(len(data["times"])):
+        t = float(data["times"][i])
+        state = SWEState(eta=data["etas"][i], hu=data["hus"][i], hv=data["hvs"][i])
+        frames.append((t, state))
+    return grid, frames
+
+
+def _run_detail_zone(
+    zone_bounds: dict,
+    coarse_grid: Grid,
+    coarse_frames: list[tuple[float, SWEState]],
+    bathy_service: BathymetryService,
+    duration_seconds: float,
+    resolution_km: float = 5.0,
+) -> dict:
+    """Run Boussinesq detail simulation for a single focus zone."""
+    fine_grid = create_grid(
+        lat_min=zone_bounds["lat_min"],
+        lat_max=zone_bounds["lat_max"],
+        lon_min=zone_bounds["lon_min"],
+        lon_max=zone_bounds["lon_max"],
+        resolution_km=resolution_km,
+    )
+
+    # Get high-res bathymetry for the zone
+    depth = bathy_service.get_bathymetry(fine_grid, source="auto")
+    depth = np.nan_to_num(depth, nan=0.0, posinf=0.0, neginf=0.0)
+    from scipy.ndimage import uniform_filter
+    if depth.size > 100:
+        depth = uniform_filter(depth, size=3, mode='nearest')
+    fine_grid = fine_grid.with_depth(depth)
+
+    # Extract boundary conditions from coarse solution
+    bc = create_boundary_conditions_from_swe(coarse_grid, fine_grid, coarse_frames)
+
+    # Initial eta from coarse solution interpolated to fine grid
+    initial_eta = np.zeros(fine_grid.depth.shape)
+
+    config = BoussinesqConfig(
+        duration_seconds=duration_seconds,
+        output_interval_seconds=max(30.0, duration_seconds / 10),
+        cfl=0.3,
+    )
+
+    result = run_boussinesq(fine_grid, initial_eta, config, boundary_conditions=bc)
+
+    # Compute inundation
+    inundation = compute_inundation(fine_grid, result.max_wave_heights, result.max_velocity)
+
+    return {
+        "max_runup_m": inundation.max_runup_m,
+        "inundation_geojson": inundation.inundation_extent_geojson(),
+        "max_wave_height": float(np.nanmax(result.max_wave_heights)) if result.max_wave_heights.size > 0 else 0.0,
+    }
+
+
 @router.post("/simulations/{uid}/run-coarse")
 async def run_coarse(uid: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Simulation).where(Simulation.uid == uid))
@@ -82,7 +167,6 @@ async def run_coarse(uid: str, db: AsyncSession = Depends(get_db)):
     if sim is None:
         raise HTTPException(status_code=404, detail="Simulation not found")
 
-    # Update status
     sim.status = SimulationStatus.RUNNING_COARSE
     await db.commit()
 
@@ -102,11 +186,7 @@ async def run_coarse(uid: str, db: AsyncSession = Depends(get_db)):
             cache_dir=get_settings().bathymetry_cache_dir,
         )
         depth = bathy_service.get_bathymetry(grid, source="auto")
-        # Sanitize: replace NaN/Inf
         depth = np.nan_to_num(depth, nan=0.0, posinf=0.0, neginf=0.0)
-        # Smooth to avoid sharp gradients that destabilize the LF solver
-        # Keep land elevations (negative depth) — the solver's dry cell treatment
-        # uses H = depth + eta, so land cells stay dry unless wave > elevation.
         from scipy.ndimage import uniform_filter
         if depth.size > 100:
             depth = uniform_filter(depth, size=3, mode='nearest')
@@ -162,6 +242,7 @@ async def run_coarse(uid: str, db: AsyncSession = Depends(get_db)):
 
         np.save(str(results_dir / "max_heights.npy"), max_heights)
         _save_frames(frames, grid, results_dir)
+        _save_coarse_frames(frames, grid, results_dir)
 
         impacts_data = [
             {"lat": imp.lat, "lon": imp.lon, "max_height": imp.max_height,
@@ -181,18 +262,102 @@ async def run_coarse(uid: str, db: AsyncSession = Depends(get_db)):
         sim.status = SimulationStatus.COARSE_COMPLETE
         await db.commit()
 
-        # Broadcast completion
         await broadcast(uid, {"type": "coarse_complete", "percent": 100})
+
+        # 7. Auto-create focus zones and run detail simulations
+        detail_results = []
+        # Limit to top 3 zones by impact height to keep run time reasonable
+        top_zones = sorted(zones, key=lambda z: z.max_impact_height, reverse=True)[:3]
+
+        if top_zones:
+            sim.status = SimulationStatus.RUNNING_DETAIL
+            await db.commit()
+            await broadcast(uid, {"type": "detail_starting", "zone_count": len(top_zones)})
+
+        for i, z in enumerate(top_zones):
+            zone_record = FocusZone(
+                simulation_id=sim.id,
+                name=f"Auto Zone {i + 1}",
+                lat_min=z.lat_min,
+                lat_max=z.lat_max,
+                lon_min=z.lon_min,
+                lon_max=z.lon_max,
+                source=ZoneSource.AUTO,
+                grid_resolution_m=5000.0,  # 5km detail resolution
+                status=ZoneStatus.RUNNING,
+            )
+            db.add(zone_record)
+            await db.commit()
+            await db.refresh(zone_record)
+
+            await broadcast(uid, {
+                "type": "detail_progress",
+                "zone_uid": zone_record.uid,
+                "zone_name": zone_record.name,
+                "zone_index": i,
+                "zone_count": len(top_zones),
+                "percent": 0,
+            })
+
+            try:
+                zone_bounds = {
+                    "lat_min": z.lat_min, "lat_max": z.lat_max,
+                    "lon_min": z.lon_min, "lon_max": z.lon_max,
+                }
+                detail = await asyncio.to_thread(
+                    _run_detail_zone,
+                    zone_bounds, grid, frames, bathy_service,
+                    duration_seconds=min(config.duration_seconds, 1800.0),  # cap at 30min
+                    resolution_km=5.0,
+                )
+
+                # Save detail results
+                zone_dir = results_dir / f"zone_{zone_record.uid}"
+                zone_dir.mkdir(parents=True, exist_ok=True)
+                with open(zone_dir / "inundation.geojson", "w") as f:
+                    json.dump(detail["inundation_geojson"], f)
+
+                zone_record.status = ZoneStatus.COMPLETE
+                zone_record.max_runup_m = detail["max_runup_m"]
+                zone_record.inundation_geojson_path = str(zone_dir / "inundation.geojson")
+                await db.commit()
+
+                detail_results.append({
+                    "zone_uid": zone_record.uid,
+                    "zone_name": zone_record.name,
+                    "max_runup_m": detail["max_runup_m"],
+                    "max_wave_height": detail["max_wave_height"],
+                })
+
+                await broadcast(uid, {
+                    "type": "detail_progress",
+                    "zone_uid": zone_record.uid,
+                    "zone_name": zone_record.name,
+                    "zone_index": i,
+                    "zone_count": len(top_zones),
+                    "percent": 100,
+                })
+
+            except Exception as e:
+                zone_record.status = ZoneStatus.FAILED
+                zone_record.error_message = str(e)
+                await db.commit()
+
+        # Update final status
+        sim.status = SimulationStatus.COMPLETE if top_zones else SimulationStatus.COARSE_COMPLETE
+        await db.commit()
+        await broadcast(uid, {"type": "complete"})
 
         max_wh = float(np.nanmax(max_heights)) if max_heights.size > 0 else 0.0
         if not np.isfinite(max_wh):
             max_wh = 0.0
 
         return {
-            "status": "coarse_complete",
+            "status": sim.status.value,
             "impacts": impacts_data,
             "suggested_zones": zones_data,
             "max_wave_height": max_wh,
+            "detail_zones": detail_results,
         }
 
     except Exception as e:
@@ -224,3 +389,35 @@ async def get_coarse_result(uid: str, db: AsyncSession = Depends(get_db)):
         suggested_zones=impacts_data.get("zones", []),
         max_wave_height=max_wave_height,
     )
+
+
+@router.get("/simulations/{uid}/detail-results")
+async def get_detail_results(uid: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Simulation).options(selectinload(Simulation.focus_zones)).where(Simulation.uid == uid)
+    )
+    sim = result.scalar_one_or_none()
+    if sim is None:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+
+    zone_results = []
+    for zone in sim.focus_zones:
+        zone_data = {
+            "zone_uid": zone.uid,
+            "zone_name": zone.name,
+            "status": zone.status.value,
+            "max_runup_m": zone.max_runup_m,
+            "bounds": {
+                "lat_min": zone.lat_min, "lat_max": zone.lat_max,
+                "lon_min": zone.lon_min, "lon_max": zone.lon_max,
+            },
+            "inundation_geojson": None,
+        }
+        if zone.inundation_geojson_path:
+            geojson_path = Path(zone.inundation_geojson_path)
+            if geojson_path.exists():
+                with open(geojson_path) as f:
+                    zone_data["inundation_geojson"] = json.load(f)
+        zone_results.append(zone_data)
+
+    return {"zones": zone_results}
