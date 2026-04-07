@@ -57,6 +57,7 @@ class Simulation(Base):
     earthquake_magnitude: Mapped[float] = mapped_column(Float)
     earthquake_direction: Mapped[float] = mapped_column(Float, default=0.0)
     earthquake_depth_km: Mapped[float] = mapped_column(Float, default=15.0)
+    earthquake_datetime: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Advanced fault params (nullable)
     fault_strike: Mapped[float | None] = mapped_column(Float, nullable=True)

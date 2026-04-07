@@ -237,6 +237,13 @@ async def run_coarse(uid: str, db: AsyncSession = Depends(get_db)):
         )
         displacement = compute_displacement(fault, grid)
 
+        # 3b. Add tidal offset if datetime is set
+        if sim.earthquake_datetime:
+            from tsunami.simulation.tides import compute_tide_field
+            tide_offset = compute_tide_field(grid.lat, grid.lon, sim.earthquake_datetime)
+            tide_offset = np.where(grid.depth > 0, tide_offset, 0.0)
+            displacement = displacement + tide_offset
+
         # 4. Run SWE with progress broadcasting
         config = SWESolverConfig(
             duration_seconds=sim.duration_hours * 3600,

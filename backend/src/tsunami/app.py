@@ -40,7 +40,7 @@ def create_app() -> FastAPI:
     async def health():
         return {"status": "ok"}
 
-    from tsunami.api import simulations, focus_zones, run, export, bathymetry_routes, presets, frames
+    from tsunami.api import simulations, focus_zones, run, export, bathymetry_routes, presets, frames, tides
     app.include_router(simulations.router, prefix="/api")
     app.include_router(focus_zones.router, prefix="/api")
     app.include_router(run.router, prefix="/api")
@@ -48,6 +48,7 @@ def create_app() -> FastAPI:
     app.include_router(bathymetry_routes.router, prefix="/api")
     app.include_router(presets.router, prefix="/api")
     app.include_router(frames.router, prefix="/api")
+    app.include_router(tides.router, prefix="/api")
     from tsunami.api import websocket as ws_module
     app.include_router(ws_module.router, prefix="/api")
 

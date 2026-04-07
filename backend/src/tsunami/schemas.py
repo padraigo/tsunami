@@ -11,6 +11,7 @@ class SimulationCreate(BaseModel):
     earthquake_magnitude: float = Field(ge=5.0, le=10.0)
     earthquake_direction: float = Field(ge=0.0, lt=360.0, default=0.0)
     earthquake_depth_km: float = Field(ge=0.0, le=700.0, default=15.0)
+    earthquake_datetime: datetime | None = None
     grid_resolution_km: float = Field(gt=0.0, default=2.0)
     duration_hours: float = Field(gt=0.0, le=48.0, default=6.0)
 
@@ -75,6 +76,7 @@ class SimulationRead(BaseModel):
     earthquake_magnitude: float
     earthquake_direction: float
     earthquake_depth_km: float
+    earthquake_datetime: datetime | None = None
     grid_resolution_km: float
     duration_hours: float
     focus_zones: list[FocusZoneRead] = []
