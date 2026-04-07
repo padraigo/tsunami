@@ -39,6 +39,22 @@ export default function TidalMode() {
       >
         {loading ? 'Computing...' : 'Show Global Tides'}
       </button>
+      {loading && (
+        <div className="space-y-1">
+          <div className="h-2 w-full overflow-hidden rounded-full bg-slate-700">
+            <div className="h-full animate-[loading_2s_ease-in-out_infinite] rounded-full bg-cyan-500"
+                 style={{ width: '40%', animation: 'loading 2s ease-in-out infinite' }} />
+          </div>
+          <p className="text-xs text-slate-400">Computing 50 tidal frames across 25 hours...</p>
+          <style>{`
+            @keyframes loading {
+              0% { transform: translateX(-100%); }
+              50% { transform: translateX(150%); }
+              100% { transform: translateX(-100%); }
+            }
+          `}</style>
+        </div>
+      )}
     </div>
   )
 }
