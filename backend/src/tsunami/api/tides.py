@@ -94,32 +94,31 @@ async def compute_tides(body: TideComputeRequest):
     depth_ds = downsample(depth)
     frame_rows, frame_cols = sample_eta.shape
 
-    # Add a wrap column at the right edge (copy of the first column)
-    # to eliminate the dateline seam
-    def add_wrap_col(arr: np.ndarray) -> np.ndarray:
-        return np.column_stack([arr, arr[:, 0]])
+    # Add 2 wrap columns: one on each side to overlap past the dateline
+    def add_wrap_cols(arr: np.ndarray) -> np.ndarray:
+        return np.column_stack([arr[:, -1], arr, arr[:, 0]])
 
-    depth_ds = add_wrap_col(depth_ds)
-    frame_cols_out = frame_cols + 1
+    depth_ds = add_wrap_cols(depth_ds)
+    frame_cols_out = frame_cols + 2
 
     frame_data = []
     for t, eta in tide_frames:
-        eta_ds = add_wrap_col(downsample(eta)).astype(np.float32)
+        eta_ds = add_wrap_cols(downsample(eta)).astype(np.float32)
         frame_data.append({
             "time_s": round(t, 1),
             "eta_base64": base64.b64encode(eta_ds.tobytes()).decode("ascii"),
         })
 
-    # Image bounds: -90..90 lat, -180..180 lon
-    # The image stretches across this exact rectangle.
-    # With the wrap column, the rightmost pixel duplicates the leftmost,
-    # so there's no seam at the dateline.
+    # Extend lon bounds past -180/180 by one cell so the image overlaps
+    # the dateline on both sides, eliminating the seam
+    ds_lon = grid.lon[::sx]
+    dlon = float(ds_lon[1] - ds_lon[0]) if len(ds_lon) > 1 else 4.0
     payload = {
         "grid_bounds": {
             "lat_min": -85.0,
             "lat_max": 85.0,
-            "lon_min": -180.0,
-            "lon_max": 180.0,
+            "lon_min": -180.0 - dlon,
+            "lon_max": 180.0 + dlon,
         },
         "frame_rows": frame_rows,
         "frame_cols": frame_cols_out,
