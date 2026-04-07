@@ -12,125 +12,87 @@ function decodeFrame(base64: string, _rows: number, _cols: number): Float32Array
   return new Float32Array(bytes.buffer)
 }
 
+function mercY(latDeg: number): number {
+  const clamp = Math.max(-85, Math.min(85, latDeg))
+  const latRad = (clamp * Math.PI) / 180
+  return Math.log(Math.tan(Math.PI / 4 + latRad / 2))
+}
+
+type ColorFn = (raw: number, idx: number, buf: Uint8ClampedArray) => void
+
+const waveColor: ColorFn = (raw, idx, buf) => {
+  const v = Math.abs(raw)
+  if (v < 0.01) { buf[idx+3] = 0; return }
+  if (v < 0.5) {
+    const t = v / 0.5
+    buf[idx]=0; buf[idx+1]=Math.round(100+155*t); buf[idx+2]=255; buf[idx+3]=Math.round(100+155*t)
+  } else if (v < 2) {
+    const t = (v-0.5)/1.5
+    buf[idx]=Math.round(255*t); buf[idx+1]=200; buf[idx+2]=Math.round(255*(1-t)); buf[idx+3]=200
+  } else if (v < 5) {
+    const t = (v-2)/3
+    buf[idx]=255; buf[idx+1]=Math.round(200*(1-t)); buf[idx+2]=0; buf[idx+3]=220
+  } else {
+    buf[idx]=200; buf[idx+1]=0; buf[idx+2]=0; buf[idx+3]=240
+  }
+}
+
+const tideColor: ColorFn = (raw, idx, buf) => {
+  if (Math.abs(raw) < 0.005) { buf[idx+3] = 0; return }
+  if (raw < 0) {
+    const t = Math.min(1, Math.abs(raw) / 0.5)
+    buf[idx]=30; buf[idx+1]=Math.round(100+155*(1-t)); buf[idx+2]=255; buf[idx+3]=Math.round(150+100*t)
+  } else {
+    const t = Math.min(1, raw / 0.5)
+    buf[idx]=255; buf[idx+1]=Math.round(150*(1-t)); buf[idx+2]=30; buf[idx+3]=Math.round(150+100*t)
+  }
+}
+
+/**
+ * Render a frame to canvas with Mercator resampling.
+ * Data is equirectangular (uniform lat spacing); MapLibre stretches
+ * the image linearly in Mercator Y, so we pre-warp rows to compensate.
+ */
 function renderFrameToCanvas(
   canvas: HTMLCanvasElement,
   data: Float32Array,
   rows: number,
   cols: number,
-  depth?: Float32Array,
+  depth: Float32Array | undefined,
+  dataLatMin: number,
+  dataLatMax: number,
+  boundsLatMin: number,
+  boundsLatMax: number,
+  colorFn: ColorFn,
 ): void {
-  canvas.width = cols
-  canvas.height = rows
-  const ctx = canvas.getContext('2d')!
-  const imageData = ctx.createImageData(cols, rows)
-  // Data is stored row 0 = south (lat_min), but canvas row 0 = top.
-  // MapLibre image source maps top-left to [lon_min, lat_max].
-  // So we flip vertically: canvas row r reads data row (rows-1-r).
-  for (let i = 0; i < data.length; i++) {
-    const srcRow = Math.floor(i / cols)
-    const srcCol = i % cols
-    const flippedRow = rows - 1 - srcRow
-    const dataIdx = flippedRow * cols + srcCol
-    const v = Math.abs(data[dataIdx])
-    const idx = i * 4
-    const isLand = depth ? depth[dataIdx] <= 0 : false
-    if (isLand || v < 0.01) {
-      imageData.data[idx] = 0
-      imageData.data[idx + 1] = 0
-      imageData.data[idx + 2] = 0
-      imageData.data[idx + 3] = 0
-    } else if (v < 0.5) {
-      const t = v / 0.5
-      imageData.data[idx] = 0
-      imageData.data[idx + 1] = Math.round(100 + 155 * t)
-      imageData.data[idx + 2] = 255
-      imageData.data[idx + 3] = Math.round(100 + 155 * t)
-    } else if (v < 2) {
-      const t = (v - 0.5) / 1.5
-      imageData.data[idx] = Math.round(255 * t)
-      imageData.data[idx + 1] = 200
-      imageData.data[idx + 2] = Math.round(255 * (1 - t))
-      imageData.data[idx + 3] = 200
-    } else if (v < 5) {
-      const t = (v - 2) / 3
-      imageData.data[idx] = 255
-      imageData.data[idx + 1] = Math.round(200 * (1 - t))
-      imageData.data[idx + 2] = 0
-      imageData.data[idx + 3] = 220
-    } else {
-      imageData.data[idx] = 200
-      imageData.data[idx + 1] = 0
-      imageData.data[idx + 2] = 0
-      imageData.data[idx + 3] = 240
-    }
-  }
-  ctx.putImageData(imageData, 0, 0)
-}
-
-function mercY(latDeg: number): number {
-  const latRad = (latDeg * Math.PI) / 180
-  return Math.log(Math.tan(Math.PI / 4 + latRad / 2))
-}
-
-function renderTideFrameToCanvas(
-  canvas: HTMLCanvasElement,
-  data: Float32Array,
-  rows: number,
-  cols: number,
-  depth?: Float32Array,
-  latMin = -85,
-  latMax = 85,
-): void {
-  // MapLibre image source stretches pixels linearly in Mercator Y space.
-  // Our data has uniform lat spacing (equirectangular), so we must resample
-  // rows to Mercator spacing to align with the map projection.
-  const outRows = Math.round(rows * 2.5)
+  const outRows = Math.max(rows, Math.round(rows * 2))
   canvas.width = cols
   canvas.height = outRows
   const ctx = canvas.getContext('2d')!
   const imageData = ctx.createImageData(cols, outRows)
+  const buf = imageData.data
 
-  // Mercator Y range for the image bounds
-  const mercMin = mercY(latMin)
-  const mercMax = mercY(latMax)
+  const mercMin = mercY(boundsLatMin)
+  const mercMax = mercY(boundsLatMax)
 
   for (let canvasRow = 0; canvasRow < outRows; canvasRow++) {
-    // Canvas row 0 = top = north (lat_max in Mercator)
-    const mercFrac = canvasRow / (outRows - 1) // 0 at top, 1 at bottom
-    const mercVal = mercMax - mercFrac * (mercMax - mercMin) // top=mercMax, bottom=mercMin
-    // Inverse Mercator → latitude
+    // Canvas top = north (lat_max), bottom = south (lat_min)
+    const mercFrac = canvasRow / (outRows - 1)
+    const mercVal = mercMax - mercFrac * (mercMax - mercMin)
     const latDeg = (2 * Math.atan(Math.exp(mercVal)) - Math.PI / 2) * 180 / Math.PI
 
-    // Map latitude to data row (data row 0 = south = latMin for the data grid)
-    // The data grid goes from -80 to +80, but bounds may differ
-    const dataLatMin = -80.0
-    const dataLatMax = 80.0
+    // Map to data row (row 0 = dataLatMin = south)
     const dataRowF = ((latDeg - dataLatMin) / (dataLatMax - dataLatMin)) * (rows - 1)
     const dataRow = Math.max(0, Math.min(rows - 1, Math.round(dataRowF)))
 
     for (let col = 0; col < cols; col++) {
       const dataIdx = dataRow * cols + col
-      const raw = data[dataIdx]
       const idx = (canvasRow * cols + col) * 4
       const isLand = depth ? depth[dataIdx] <= 0 : false
 
-      if (isLand || Math.abs(raw) < 0.005) {
-        imageData.data[idx] = 0
-        imageData.data[idx + 1] = 0
-        imageData.data[idx + 2] = 0
-        imageData.data[idx + 3] = 0
-      } else if (raw < 0) {
-        const t = Math.min(1, Math.abs(raw) / 0.5)
-        imageData.data[idx] = 30
-        imageData.data[idx + 1] = Math.round(100 + 155 * (1 - t))
-        imageData.data[idx + 2] = 255
-        imageData.data[idx + 3] = Math.round(150 + 100 * t)
-      } else {
-        const t = Math.min(1, raw / 0.5)
-        imageData.data[idx] = 255
-        imageData.data[idx + 1] = Math.round(150 * (1 - t))
-        imageData.data[idx + 2] = 30
-        imageData.data[idx + 3] = Math.round(150 + 100 * t)
+      buf[idx] = 0; buf[idx+1] = 0; buf[idx+2] = 0; buf[idx+3] = 0
+      if (!isLand) {
+        colorFn(data[dataIdx], idx, buf)
       }
     }
   }
@@ -448,18 +410,23 @@ export default function MapView() {
     const depth = frames.depth_base64
       ? decodeFrame(frames.depth_base64, frames.frame_rows, frames.frame_cols)
       : undefined
-    if (tidalMode) {
-      const b = frames.grid_bounds
-      renderTideFrameToCanvas(canvas, data, frames.frame_rows, frames.frame_cols, depth, b.lat_min, b.lat_max)
-    } else {
-      renderFrameToCanvas(canvas, data, frames.frame_rows, frames.frame_cols, depth)
-    }
+    const b = frames.grid_bounds
+    // Data lat range: the actual grid the backend computed on
+    // For tides: -80..80 (create_grid bounds), for waves: from domain_for_magnitude
+    // A safe approximation: use the image bounds shrunk by half a cell
+    const dlat = (b.lat_max - b.lat_min) / frames.frame_rows
+    const dataLatMin = b.lat_min + dlat / 2
+    const dataLatMax = b.lat_max - dlat / 2
+    renderFrameToCanvas(
+      canvas, data, frames.frame_rows, frames.frame_cols, depth,
+      dataLatMin, dataLatMax, b.lat_min, b.lat_max,
+      tidalMode ? tideColor : waveColor,
+    )
     const dataUrl = canvas.toDataURL()
 
     // Clamp latitudes to MapLibre's Mercator limit, pass longitudes as-is
     // (MapLibre handles unwrapped longitudes like -187 or 182 correctly)
     const clampLat = (lat: number) => Math.max(-85, Math.min(85, lat))
-    const b = frames.grid_bounds
     const coordinates: [[number, number], [number, number], [number, number], [number, number]] = [
       [b.lon_min, clampLat(b.lat_max)],
       [b.lon_max, clampLat(b.lat_max)],
