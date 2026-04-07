@@ -72,7 +72,7 @@ export default function MapView() {
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
   const pickMarkerRef = useRef<maplibregl.Marker | null>(null)
-  const { current, coarseResult, frames, currentFrameIndex } = useSimulationStore()
+  const { current, coarseResult, frames, currentFrameIndex, detailZones } = useSimulationStore()
   const pickPhase = useMapPickStore((s) => s.phase)
   const pickLat = useMapPickStore((s) => s.lat)
   const pickLon = useMapPickStore((s) => s.lon)
@@ -311,6 +311,59 @@ export default function MapView() {
     if (map.loaded()) addZones()
     else map.on('load', addZones)
   }, [current?.focus_zones])
+
+  // Inundation extent polygons from detail zones
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    const addInundation = () => {
+      const features: GeoJSON.Feature[] = []
+      for (const zone of detailZones) {
+        if (zone.inundation_geojson?.geometry?.coordinates) {
+          const geom = zone.inundation_geojson.geometry
+          if (geom.type === 'MultiPolygon') {
+            for (const poly of geom.coordinates) {
+              features.push({
+                type: 'Feature',
+                geometry: { type: 'Polygon', coordinates: poly },
+                properties: { zone_name: zone.zone_name, max_runup_m: zone.max_runup_m },
+              })
+            }
+          } else if (geom.type === 'Polygon' && geom.coordinates.length > 0) {
+            features.push({
+              type: 'Feature',
+              geometry: geom,
+              properties: { zone_name: zone.zone_name, max_runup_m: zone.max_runup_m },
+            })
+          }
+        }
+      }
+
+      const data: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features }
+
+      if (map.getSource('inundation')) {
+        (map.getSource('inundation') as maplibregl.GeoJSONSource).setData(data)
+      } else {
+        map.addSource('inundation', { type: 'geojson', data })
+        map.addLayer({
+          id: 'inundation-fill',
+          type: 'fill',
+          source: 'inundation',
+          paint: { 'fill-color': '#dc2626', 'fill-opacity': 0.4 },
+        })
+        map.addLayer({
+          id: 'inundation-outline',
+          type: 'line',
+          source: 'inundation',
+          paint: { 'line-color': '#dc2626', 'line-width': 2 },
+        })
+      }
+    }
+
+    if (map.loaded()) addInundation()
+    else map.on('load', addInundation)
+  }, [detailZones])
 
   // Wave animation frame
   useEffect(() => {

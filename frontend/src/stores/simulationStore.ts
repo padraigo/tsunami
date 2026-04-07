@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Simulation, CoarseResult, Preset, CreateSimulationPayload, CreateFocusZonePayload, FramesResponse } from '../types'
+import type { Simulation, CoarseResult, Preset, CreateSimulationPayload, CreateFocusZonePayload, FramesResponse, DetailZoneResult } from '../types'
 import { api } from '../services/api'
 import { simulationWS } from '../services/websocket'
 
@@ -8,6 +8,7 @@ interface SimulationState {
   current: Simulation | null
   coarseResult: CoarseResult | null
   frames: FramesResponse | null
+  detailZones: DetailZoneResult[]
   currentFrameIndex: number
   isPlaying: boolean
   progress: number
@@ -23,6 +24,7 @@ interface SimulationState {
   addFocusZone: (payload: CreateFocusZonePayload) => Promise<void>
   fetchPresets: () => Promise<void>
   fetchFrames: () => Promise<void>
+  fetchDetailResults: () => Promise<void>
   setFrameIndex: (index: number) => void
   togglePlayback: () => void
   setProgress: (progress: number) => void
@@ -34,6 +36,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
   current: null,
   coarseResult: null,
   frames: null,
+  detailZones: [],
   currentFrameIndex: 0,
   isPlaying: false,
   progress: 0,
@@ -69,10 +72,11 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
       if (sim.status !== 'pending') {
         try { coarseResult = await api.run.coarseResult(uid) } catch { /* no results yet */ }
       }
-      set({ current: sim, coarseResult, frames: null, currentFrameIndex: 0, isPlaying: false, progress: 0, loading: false })
-      // Fetch frames for completed simulations
+      set({ current: sim, coarseResult, frames: null, detailZones: [], currentFrameIndex: 0, isPlaying: false, progress: 0, loading: false })
+      // Fetch frames and detail results for completed simulations
       if (coarseResult) {
         await get().fetchFrames()
+        await get().fetchDetailResults()
       }
     } catch (e: any) {
       set({ error: e.message, loading: false })
@@ -115,8 +119,9 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
       const sim = await api.simulations.get(current.uid)
       set({ current: sim, coarseResult: result, loading: false })
 
-      // Auto-fetch frames after coarse completes
+      // Auto-fetch frames and detail results after run completes
       await get().fetchFrames()
+      await get().fetchDetailResults()
     } catch (e: any) {
       simulationWS.disconnect()
       set({ error: e.message, loading: false })
@@ -152,6 +157,15 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
       const frames = await api.run.frames(current.uid)
       set({ frames })
     } catch { /* no frames available */ }
+  },
+
+  fetchDetailResults: async () => {
+    const { current } = get()
+    if (!current) return
+    try {
+      const data = await api.run.detailResults(current.uid)
+      set({ detailZones: data.zones })
+    } catch { /* no detail results */ }
   },
 
   setFrameIndex: (index: number) => set({ currentFrameIndex: index }),

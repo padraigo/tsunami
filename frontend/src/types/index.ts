@@ -95,6 +95,19 @@ export interface CreateFocusZonePayload {
   grid_resolution_m?: number
 }
 
+export interface DetailZoneResult {
+  zone_uid: string
+  zone_name: string
+  status: string
+  max_runup_m: number | null
+  bounds: { lat_min: number; lat_max: number; lon_min: number; lon_max: number }
+  inundation_geojson: any | null
+}
+
+export interface DetailResultsResponse {
+  zones: DetailZoneResult[]
+}
+
 export interface FrameData {
   time_s: number
   eta_base64: string
