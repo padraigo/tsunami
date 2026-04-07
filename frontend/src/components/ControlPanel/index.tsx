@@ -3,6 +3,7 @@ import { useSimulationStore } from '../../stores/simulationStore'
 import type { Preset } from '../../types'
 import EarthquakeForm from './EarthquakeForm'
 import PresetSelector from './PresetSelector'
+import TidalMode from './TidalMode'
 import SimulationControls from './SimulationControls'
 import SimulationDetail from './SimulationDetail'
 
@@ -32,10 +33,23 @@ export default function ControlPanel() {
     useSimulationStore.setState({ current: null, coarseResult: null, frames: null })
   }
 
+  const tidalMode = useSimulationStore((s) => s.tidalMode)
+
+  // If in tidal mode, just show the tidal panel
+  if (tidalMode) {
+    return (
+      <div className="space-y-4">
+        <TidalMode />
+      </div>
+    )
+  }
+
   // No simulation selected — show create form
   if (!current) {
     return (
       <div className="space-y-4">
+        <TidalMode />
+        <div className="my-2 border-t border-slate-700" />
         <PresetSelector presets={presets} onSelect={setSelectedPreset} />
         <div className="my-2 border-t border-slate-700" />
         <EarthquakeForm onSubmit={createSimulation} loading={loading} preset={selectedPreset} />

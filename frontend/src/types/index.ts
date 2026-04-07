@@ -34,6 +34,7 @@ export interface Simulation {
   earthquake_depth_km: number
   grid_resolution_km: number
   duration_hours: number
+  earthquake_datetime?: string | null
   focus_zones: FocusZone[]
 }
 
@@ -81,8 +82,16 @@ export interface CreateSimulationPayload {
   earthquake_magnitude: number
   earthquake_direction: number
   earthquake_depth_km?: number
+  earthquake_datetime?: string | null
   grid_resolution_km?: number
   duration_hours?: number
+}
+
+export interface TideComputePayload {
+  start_datetime: string
+  duration_hours?: number
+  num_frames?: number
+  resolution_km?: number
 }
 
 export interface CreateFocusZonePayload {

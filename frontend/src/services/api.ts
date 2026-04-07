@@ -5,6 +5,7 @@ import type {
   Preset,
   CreateSimulationPayload,
   CreateFocusZonePayload,
+  TideComputePayload,
   FramesResponse,
   DetailResultsResponse,
 } from '../types'
@@ -55,6 +56,13 @@ export const api = {
     frames: (uid: string) => apiFetch<FramesResponse>(`/simulations/${uid}/frames`),
     detailResults: (uid: string) => apiFetch<DetailResultsResponse>(`/simulations/${uid}/detail-results`),
     exportUrl: (uid: string) => `/api/simulations/${uid}/export?format=geojson`,
+  },
+  tides: {
+    compute: (payload: TideComputePayload) =>
+      apiFetch<FramesResponse>('/tides/compute', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
   },
   presets: {
     locations: () => apiFetch<Preset[]>('/presets/locations'),

@@ -13,9 +13,12 @@ interface SimulationState {
   isPlaying: boolean
   progress: number
   presets: Preset[]
+  tidalMode: boolean
   loading: boolean
   error: string | null
 
+  computeTides: (startDatetime: string) => Promise<void>
+  exitTidalMode: () => void
   fetchSimulations: () => Promise<void>
   createSimulation: (payload: CreateSimulationPayload) => Promise<void>
   selectSimulation: (uid: string) => Promise<void>
@@ -40,9 +43,22 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
   currentFrameIndex: 0,
   isPlaying: false,
   progress: 0,
+  tidalMode: false,
   presets: [],
   loading: false,
   error: null,
+
+  computeTides: async (startDatetime: string) => {
+    set({ loading: true, tidalMode: true, frames: null, currentFrameIndex: 0 })
+    try {
+      const frames = await api.tides.compute({ start_datetime: startDatetime, duration_hours: 25.0, num_frames: 50, resolution_km: 100.0 })
+      set({ frames, loading: false })
+    } catch (e: any) {
+      set({ error: e.message, loading: false, tidalMode: false })
+    }
+  },
+
+  exitTidalMode: () => set({ tidalMode: false, frames: null, currentFrameIndex: 0, isPlaying: false }),
 
   fetchSimulations: async () => {
     set({ loading: true })

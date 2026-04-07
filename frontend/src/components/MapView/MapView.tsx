@@ -67,12 +67,55 @@ function renderFrameToCanvas(
   ctx.putImageData(imageData, 0, 0)
 }
 
+function renderTideFrameToCanvas(
+  canvas: HTMLCanvasElement,
+  data: Float32Array,
+  rows: number,
+  cols: number,
+  depth?: Float32Array,
+): void {
+  canvas.width = cols
+  canvas.height = rows
+  const ctx = canvas.getContext('2d')!
+  const imageData = ctx.createImageData(cols, rows)
+  for (let i = 0; i < data.length; i++) {
+    const srcRow = Math.floor(i / cols)
+    const srcCol = i % cols
+    const flippedRow = rows - 1 - srcRow
+    const dataIdx = flippedRow * cols + srcCol
+    const raw = data[dataIdx]
+    const idx = i * 4
+    const isLand = depth ? depth[dataIdx] <= 0 : false
+    if (isLand || Math.abs(raw) < 0.005) {
+      imageData.data[idx] = 0
+      imageData.data[idx + 1] = 0
+      imageData.data[idx + 2] = 0
+      imageData.data[idx + 3] = 0
+    } else if (raw < 0) {
+      // Low tide: blue shades
+      const t = Math.min(1, Math.abs(raw) / 0.5)
+      imageData.data[idx] = 30
+      imageData.data[idx + 1] = Math.round(100 + 155 * (1 - t))
+      imageData.data[idx + 2] = 255
+      imageData.data[idx + 3] = Math.round(150 + 100 * t)
+    } else {
+      // High tide: red/warm shades
+      const t = Math.min(1, raw / 0.5)
+      imageData.data[idx] = 255
+      imageData.data[idx + 1] = Math.round(150 * (1 - t))
+      imageData.data[idx + 2] = 30
+      imageData.data[idx + 3] = Math.round(150 + 100 * t)
+    }
+  }
+  ctx.putImageData(imageData, 0, 0)
+}
+
 export default function MapView() {
   const mapContainer = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
   const pickMarkerRef = useRef<maplibregl.Marker | null>(null)
-  const { current, coarseResult, frames, currentFrameIndex, detailZones } = useSimulationStore()
+  const { current, coarseResult, frames, currentFrameIndex, detailZones, tidalMode } = useSimulationStore()
   const pickPhase = useMapPickStore((s) => s.phase)
   const pickLat = useMapPickStore((s) => s.lat)
   const pickLon = useMapPickStore((s) => s.lon)
@@ -378,7 +421,8 @@ export default function MapView() {
     const depth = frames.depth_base64
       ? decodeFrame(frames.depth_base64, frames.frame_rows, frames.frame_cols)
       : undefined
-    renderFrameToCanvas(canvas, data, frames.frame_rows, frames.frame_cols, depth)
+    const renderFn = tidalMode ? renderTideFrameToCanvas : renderFrameToCanvas
+    renderFn(canvas, data, frames.frame_rows, frames.frame_cols, depth)
     const dataUrl = canvas.toDataURL()
 
     // Clamp latitudes to MapLibre's Mercator limit, pass longitudes as-is
@@ -409,7 +453,7 @@ export default function MapView() {
 
     if (map.loaded()) addLayer()
     else map.on('load', addLayer)
-  }, [frames, currentFrameIndex])
+  }, [frames, currentFrameIndex, tidalMode])
 
   return (
     <div className="relative h-full w-full">

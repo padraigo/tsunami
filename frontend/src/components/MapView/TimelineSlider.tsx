@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useSimulationStore } from '../../stores/simulationStore'
 
 export default function TimelineSlider() {
-  const { frames, currentFrameIndex, isPlaying, setFrameIndex, togglePlayback } = useSimulationStore()
+  const { frames, currentFrameIndex, isPlaying, setFrameIndex, togglePlayback, tidalMode } = useSimulationStore()
   const intervalRef = useRef<number | null>(null)
 
   useEffect(() => {
@@ -25,6 +25,7 @@ export default function TimelineSlider() {
   const currentFrame = frames.frames[currentFrameIndex]
   const totalFrames = frames.frames.length
   const timeMinutes = currentFrame ? Math.round(currentFrame.time_s / 60) : 0
+  const timeHours = currentFrame ? (currentFrame.time_s / 3600).toFixed(1) : '0.0'
 
   return (
     <div className="absolute bottom-4 left-4 right-4 z-10 flex items-center gap-3 rounded bg-slate-800/95 px-4 py-2">
@@ -43,7 +44,7 @@ export default function TimelineSlider() {
         className="flex-1"
       />
       <span className="min-w-[80px] text-right text-xs text-slate-300">
-        t = {timeMinutes} min
+        {tidalMode ? `t = ${timeHours}h` : `t = ${timeMinutes} min`}
       </span>
     </div>
   )

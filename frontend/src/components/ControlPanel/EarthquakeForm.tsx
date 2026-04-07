@@ -15,6 +15,7 @@ export default function EarthquakeForm({ onSubmit, loading, preset }: Props) {
   const [magnitude, setMagnitude] = useState(8.0)
   const [direction, setDirection] = useState(270)
   const [depthKm, setDepthKm] = useState(15)
+  const [earthquakeDatetime, setEarthquakeDatetime] = useState('')
   const [durationHours, setDurationHours] = useState(1.0)
   const [gridResolutionKm, setGridResolutionKm] = useState(20.0)
 
@@ -57,6 +58,7 @@ export default function EarthquakeForm({ onSubmit, loading, preset }: Props) {
       earthquake_magnitude: magnitude,
       earthquake_direction: direction,
       earthquake_depth_km: depthKm,
+      earthquake_datetime: earthquakeDatetime ? new Date(earthquakeDatetime).toISOString() : undefined,
       duration_hours: durationHours,
       grid_resolution_km: gridResolutionKm,
     })
@@ -134,6 +136,13 @@ export default function EarthquakeForm({ onSubmit, loading, preset }: Props) {
       <label className="block">
         <span className="text-xs text-slate-400">Depth (km)</span>
         <input type="number" step="1" min={0} max={700} value={depthKm} onChange={(e) => setDepthKm(+e.target.value)} className="mt-1 block w-full rounded bg-slate-700 px-2 py-1 text-sm" />
+      </label>
+
+      <label className="block">
+        <span className="text-xs text-slate-400">Date/Time (UTC, optional)</span>
+        <input type="datetime-local" value={earthquakeDatetime}
+               onChange={(e) => setEarthquakeDatetime(e.target.value)}
+               className="mt-1 block w-full rounded bg-slate-700 px-2 py-1 text-sm" />
       </label>
 
       <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400 pt-2">Simulation Settings</h2>
