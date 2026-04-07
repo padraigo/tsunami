@@ -4,7 +4,7 @@
 
 A web-based tsunami simulation platform that enables researchers and educators to model earthquake-generated tsunamis from source to impact. Users define an earthquake, watch wave propagation across ocean basins in real-time, identify threatened coastlines, and run high-fidelity local impact analysis on selected areas.
 
-The system uses a two-level simulation approach: coarse propagation across ocean basins using proven shallow water equation solvers (PyClaw/GeoClaw), followed by fine-scale Boussinesq modeling for nearshore impact and inundation analysis.
+The system uses a two-level simulation approach: coarse propagation across ocean basins using a well-balanced finite volume solver, followed by fine-scale Boussinesq modeling for nearshore impact and inundation analysis.
 
 ## 2. User Personas
 
@@ -42,9 +42,10 @@ The system uses a two-level simulation approach: coarse propagation across ocean
 
 | ID | Requirement | Priority |
 |----|------------|----------|
-| FR-2.1 | Solve shallow water equations using PyClaw with GeoClaw's augmented Roe Riemann solver | Must |
+| FR-2.1 | Solve shallow water equations using a well-balanced Lax-Friedrichs finite volume scheme with stability guards | Must |
 | FR-2.2 | Support configurable grid resolution (default ~2 km for coarse) | Must |
-| FR-2.3 | Use real bathymetry data (GEBCO) when available, procedural fallback otherwise | Must |
+| FR-2.3 | Use GEBCO 2025 bathymetry as primary data source; procedural bathymetry as offline/demo fallback | Must |
+| FR-2.3a | Mask inland water bodies (lakes, rivers) to prevent spurious inundation in coarse propagation | Should |
 | FR-2.4 | Stream wave height frames to frontend via WebSocket for live animation | Must |
 | FR-2.5 | Complete coarse simulation in seconds to a few minutes (interactive speed) | Must |
 | FR-2.6 | Produce maximum wave height map and arrival time map | Must |
@@ -74,20 +75,25 @@ The system uses a two-level simulation approach: coarse propagation across ocean
 | FR-4.6 | Compute flood depth map on land | Must |
 | FR-4.7 | Compute flow velocity map | Must |
 | FR-4.8 | Compute maximum runup height | Must |
+| FR-4.9 | Auto-create up to 3 coastal focus zones from impact detection results (automatic refinement) | Should |
+| FR-4.10 | Run automatic Boussinesq refinement at ~5 km resolution with boundary conditions taken from the coarse solution | Should |
 
 ### FR-5: Visualization
 
 | ID | Requirement | Priority |
 |----|------------|----------|
 | FR-5.1 | 2D map view (MapLibre GL) with wave animation overlay | Must |
-| FR-5.2 | 3D globe view (CesiumJS) with terrain and wave visualization | Must |
-| FR-5.3 | Toggle between 2D and 3D views, preserving state | Must |
-| FR-5.4 | Wave height heatmap animation (Deck.gl) | Must |
+| FR-5.2 | 3D globe view (CesiumJS) with terrain and wave visualization | Deferred (future release) |
+| FR-5.3 | Toggle between 2D and 3D views, preserving state | Deferred (future release) |
+| FR-5.4 | Wave height heatmap animation (Deck.gl) | Deferred (future release) |
 | FR-5.5 | Arrival time contour overlay | Must |
 | FR-5.6 | Inundation extent polygon overlay | Must |
 | FR-5.7 | Flood depth color-ramped overlay | Must |
 | FR-5.8 | Timeline panel showing wave arrival events | Must |
 | FR-5.9 | Animation playback controls (play, pause, speed, scrub) | Should |
+| FR-5.10 | Map-click epicenter placement: first click sets location, second click sets wave direction and magnitude (two-click gesture) | Must |
+| FR-5.11 | Timeline slider for scrubbing wave propagation playback | Must |
+| FR-5.12 | Progress bar displayed on frontend during active simulation | Must |
 
 ### FR-6: Data Export
 
@@ -106,6 +112,21 @@ The system uses a two-level simulation approach: coarse propagation across ocean
 | FR-7.2 | Persist simulation results for later retrieval | Must |
 | FR-7.3 | Name simulations for easy identification | Should |
 
+### FR-8: Tidal Modeling
+
+| ID | Requirement | Priority |
+|----|------------|----------|
+| FR-8.1 | User can set earthquake date/time (UTC); system includes tidal offset in initial sea-surface conditions | Should |
+| FR-8.2 | Global tidal visualization mode showing the ~25-hour tidal cycle using a 4-constituent harmonic model (M2, S2, K1, O1) | Should |
+| FR-8.3 | Tide height visualization uses a diverging blue/red color ramp (negative = below MSSL, positive = above) | Should |
+
+### FR-9: Developer Integration (MCP)
+
+| ID | Requirement | Priority |
+|----|------------|----------|
+| FR-9.1 | MCP server exposes simulation tools for Claude Code: health, list, create, run, results, presets | Should |
+| FR-9.2 | MCP server uses stdio transport with configurable backend URL | Should |
+
 ## 4. Non-Functional Requirements
 
 ### NFR-1: Performance
@@ -123,7 +144,7 @@ The system uses a two-level simulation approach: coarse propagation across ocean
 |----|------------|--------|
 | NFR-2.1 | SWE solver validated against analytical solutions | Required |
 | NFR-2.2 | Okada model validated against published displacement values | Required |
-| NFR-2.3 | Coarse propagation uses second-order accurate scheme (PyClaw) | Required |
+| NFR-2.3 | Coarse propagation uses well-balanced Lax-Friedrichs finite volume scheme with stability guards | Required |
 | NFR-2.4 | Boussinesq solver includes dispersive corrections | Required |
 
 ### NFR-3: Deployment
