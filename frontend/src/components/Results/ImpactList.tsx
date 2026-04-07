@@ -17,7 +17,7 @@ export default function ImpactList({ impacts }: Props) {
         </thead>
         <tbody>
           {sorted.map((imp, i) => (
-            <tr key={i} className="border-t border-slate-700">
+            <tr key={`${imp.lat}-${imp.lon}-${i}`} className="border-t border-slate-700">
               <td className="py-1 pr-4">{imp.lat.toFixed(2)}, {imp.lon.toFixed(2)}</td>
               <td className="py-1 pr-4 font-medium" style={{ color: imp.max_height > 5 ? '#ef4444' : imp.max_height > 2 ? '#eab308' : '#22c55e' }}>
                 {imp.max_height.toFixed(1)}

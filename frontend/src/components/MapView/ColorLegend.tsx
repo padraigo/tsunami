@@ -7,7 +7,7 @@ const STOPS = [
 
 export default function ColorLegend() {
   return (
-    <div className="absolute bottom-20 right-4 z-10 rounded bg-slate-800/90 p-2 text-xs">
+    <div className="absolute bottom-20 right-4 z-20 rounded bg-slate-800/90 p-2 text-xs">
       <div className="mb-1 font-medium text-slate-300">Wave Height</div>
       {STOPS.map((s) => (
         <div key={s.value} className="flex items-center gap-2">

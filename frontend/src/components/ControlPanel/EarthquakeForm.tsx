@@ -62,6 +62,7 @@ export default function EarthquakeForm({ onSubmit, loading, preset }: Props) {
       duration_hours: durationHours,
       grid_resolution_km: gridResolutionKm,
     })
+    pick.cancel()
   }
 
   const isPicking = pick.phase !== 'idle'

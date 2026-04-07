@@ -88,12 +88,13 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
       if (sim.status !== 'pending') {
         try { coarseResult = await api.run.coarseResult(uid) } catch { /* no results yet */ }
       }
-      set({ current: sim, coarseResult, frames: null, detailZones: [], currentFrameIndex: 0, isPlaying: false, progress: 0, loading: false })
+      set({ current: sim, coarseResult, frames: null, detailZones: [], currentFrameIndex: 0, isPlaying: false, progress: 0 })
       // Fetch frames and detail results for completed simulations
       if (coarseResult) {
         await get().fetchFrames()
         await get().fetchDetailResults()
       }
+      set({ loading: false })
     } catch (e: any) {
       set({ error: e.message, loading: false })
     }
@@ -116,21 +117,19 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
     const { current } = get()
     if (!current) return
     set({ loading: true, progress: 0 })
+    let unsub: (() => void) | undefined
     try {
       set((s) => ({ current: s.current ? { ...s.current, status: 'running_coarse' as const } : null }))
 
       // Connect WebSocket for progress updates
       simulationWS.connect(current.uid)
-      const unsub = simulationWS.subscribe((msg) => {
+      unsub = simulationWS.subscribe((msg) => {
         if (msg.type === 'coarse_progress' && typeof msg.percent === 'number') {
           set({ progress: msg.percent as number })
         }
       })
 
       const result = await api.run.coarse(current.uid)
-
-      unsub()
-      simulationWS.disconnect()
 
       const sim = await api.simulations.get(current.uid)
       set({ current: sim, coarseResult: result, loading: false })
@@ -139,8 +138,10 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
       await get().fetchFrames()
       await get().fetchDetailResults()
     } catch (e: any) {
-      simulationWS.disconnect()
       set({ error: e.message, loading: false })
+    } finally {
+      unsub?.()
+      simulationWS.disconnect()
     }
   },
 

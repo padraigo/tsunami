@@ -300,6 +300,11 @@ export default function MapView() {
 
     if (map.loaded()) onLoad()
     else map.on('load', onLoad)
+
+    return () => {
+      if (map.getLayer('impact-circles')) map.removeLayer('impact-circles')
+      if (map.getSource('impacts')) map.removeSource('impacts')
+    }
   }, [coarseResult?.impacts])
 
   // Focus zone rectangles
@@ -342,6 +347,12 @@ export default function MapView() {
 
     if (map.loaded()) addZones()
     else map.on('load', addZones)
+
+    return () => {
+      if (map.getLayer('zone-fill')) map.removeLayer('zone-fill')
+      if (map.getLayer('zone-outline')) map.removeLayer('zone-outline')
+      if (map.getSource('zones')) map.removeSource('zones')
+    }
   }, [current?.focus_zones])
 
   // Inundation extent polygons from detail zones
@@ -395,6 +406,12 @@ export default function MapView() {
 
     if (map.loaded()) addInundation()
     else map.on('load', addInundation)
+
+    return () => {
+      if (map.getLayer('inundation-fill')) map.removeLayer('inundation-fill')
+      if (map.getLayer('inundation-outline')) map.removeLayer('inundation-outline')
+      if (map.getSource('inundation')) map.removeSource('inundation')
+    }
   }, [detailZones])
 
   // Wave animation frame
@@ -451,6 +468,11 @@ export default function MapView() {
 
     if (map.loaded()) addLayer()
     else map.on('load', addLayer)
+
+    return () => {
+      if (map.getLayer('wave-frame-layer')) map.removeLayer('wave-frame-layer')
+      if (map.getSource('wave-frame')) map.removeSource('wave-frame')
+    }
   }, [frames, currentFrameIndex, tidalMode])
 
   return (

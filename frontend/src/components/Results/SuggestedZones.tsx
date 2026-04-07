@@ -10,7 +10,7 @@ export default function SuggestedZones({ zones, onAddZone }: Props) {
   return (
     <div className="space-y-2">
       {zones.map((z, i) => (
-        <div key={i} className="flex items-center justify-between rounded bg-slate-700 p-2 text-xs">
+        <div key={`${z.lat_min}-${z.lon_min}-${i}`} className="flex items-center justify-between rounded bg-slate-700 p-2 text-xs">
           <div>
             <span className="font-medium">Zone {i + 1}</span>
             <span className="ml-2 text-slate-400">

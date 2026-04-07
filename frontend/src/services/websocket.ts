@@ -9,6 +9,7 @@ export class SimulationWebSocket {
 
   connect(uid: string): void {
     if (this.ws) this.disconnect()
+    this.listeners.clear()
     this.uid = uid
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
     const url = `${proto}://${location.host}/api/ws/simulations/${uid}`
