@@ -102,11 +102,11 @@ async def run_coarse(uid: str, db: AsyncSession = Depends(get_db)):
             cache_dir=get_settings().bathymetry_cache_dir,
         )
         depth = bathy_service.get_bathymetry(grid, source="auto")
-        # Sanitize: replace NaN, set land cells to 0 (dry), smooth for stability
+        # Sanitize: replace NaN/Inf
         depth = np.nan_to_num(depth, nan=0.0, posinf=0.0, neginf=0.0)
-        # Treat land (negative depth = elevation above sea level) as dry cells
-        depth = np.maximum(depth, 0.0)
         # Smooth to avoid sharp gradients that destabilize the LF solver
+        # Keep land elevations (negative depth) — the solver's dry cell treatment
+        # uses H = depth + eta, so land cells stay dry unless wave > elevation.
         from scipy.ndimage import uniform_filter
         if depth.size > 100:
             depth = uniform_filter(depth, size=3, mode='nearest')
