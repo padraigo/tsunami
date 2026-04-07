@@ -70,9 +70,11 @@ class TideComputeRequest(BaseModel):
 @router.post("/tides/compute")
 async def compute_tides(body: TideComputeRequest):
     """Generate global tidal animation frames."""
+    # Use lon_max < 180 by one cell width to avoid dateline duplication,
+    # then extend bounds to close the gap visually
     grid = create_grid(
         lat_min=-80.0, lat_max=80.0,
-        lon_min=-180.0, lon_max=180.0,
+        lon_min=-180.0, lon_max=179.999,
         resolution_km=body.resolution_km,
     )
 
@@ -119,13 +121,15 @@ async def compute_tides(body: TideComputeRequest):
             "eta_base64": base64.b64encode(eta_ds.tobytes()).decode("ascii"),
         })
 
-    # Use actual downsampled grid bounds (not original) to avoid shift
+    # Bounds represent cell edges (half-cell beyond centers) for proper alignment
+    half_dlat = (float(ds_lat[1]) - float(ds_lat[0])) / 2 if len(ds_lat) > 1 else 0.5
+    half_dlon = (float(ds_lon[1]) - float(ds_lon[0])) / 2 if len(ds_lon) > 1 else 0.5
     payload = {
         "grid_bounds": {
-            "lat_min": float(ds_lat[0]),
-            "lat_max": float(ds_lat[-1]),
-            "lon_min": float(ds_lon[0]),
-            "lon_max": float(ds_lon[-1]),
+            "lat_min": float(ds_lat[0]) - half_dlat,
+            "lat_max": float(ds_lat[-1]) + half_dlat,
+            "lon_min": float(ds_lon[0]) - half_dlon,
+            "lon_max": float(ds_lon[-1]) + half_dlon,
         },
         "frame_rows": frame_rows,
         "frame_cols": frame_cols,
