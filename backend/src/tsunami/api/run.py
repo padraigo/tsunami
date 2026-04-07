@@ -32,6 +32,40 @@ from tsunami.simulation.swe_solver import SWESolverConfig, SWEState, run_swe
 router = APIRouter(tags=["run"])
 
 
+def _mask_inland_water(depth: np.ndarray) -> np.ndarray:
+    """Mask inland water bodies by flood-filling from domain edges.
+
+    Only cells connected to the ocean (domain boundary wet cells) remain as water.
+    Inland lakes/rivers are set to land elevation (negative depth).
+    """
+    from scipy.ndimage import label
+
+    wet = depth > 0
+    if not np.any(wet):
+        return depth
+
+    # Find connected components of wet cells
+    labeled, n_features = label(wet)
+    if n_features <= 1:
+        return depth
+
+    # Find which labels touch the domain boundary (= ocean-connected)
+    edge_labels = set()
+    edge_labels.update(labeled[0, :].tolist())     # top row
+    edge_labels.update(labeled[-1, :].tolist())    # bottom row
+    edge_labels.update(labeled[:, 0].tolist())     # left col
+    edge_labels.update(labeled[:, -1].tolist())    # right col
+    edge_labels.discard(0)  # 0 = land/dry
+
+    # Mask inland: set non-ocean-connected wet cells to land
+    result = depth.copy()
+    for lbl in range(1, n_features + 1):
+        if lbl not in edge_labels:
+            result[labeled == lbl] = -10.0  # Set to 10m elevation (land)
+
+    return result
+
+
 def _downsample(arr: np.ndarray, target: int = 50) -> np.ndarray:
     """Stride-sample a 2D array to approximately target×target."""
     ny, nx = arr.shape
@@ -131,9 +165,10 @@ def _run_detail_zone(
     # Get high-res bathymetry for the zone
     depth = bathy_service.get_bathymetry(fine_grid, source="auto")
     depth = np.nan_to_num(depth, nan=0.0, posinf=0.0, neginf=0.0)
+    depth = _mask_inland_water(depth)
     from scipy.ndimage import uniform_filter
     if depth.size > 100:
-        depth = uniform_filter(depth, size=3, mode='nearest')
+        depth = uniform_filter(depth, size=2, mode='nearest')
     fine_grid = fine_grid.with_depth(depth)
 
     # Extract boundary conditions from coarse solution
@@ -187,9 +222,12 @@ async def run_coarse(uid: str, db: AsyncSession = Depends(get_db)):
         )
         depth = bathy_service.get_bathymetry(grid, source="auto")
         depth = np.nan_to_num(depth, nan=0.0, posinf=0.0, neginf=0.0)
+        # Mask inland water bodies (lakes, rivers) — only ocean-connected cells stay wet
+        depth = _mask_inland_water(depth)
+        # Gentle smooth for solver stability
         from scipy.ndimage import uniform_filter
         if depth.size > 100:
-            depth = uniform_filter(depth, size=3, mode='nearest')
+            depth = uniform_filter(depth, size=2, mode='nearest')
         grid = grid.with_depth(depth)
 
         # 3. Compute displacement
