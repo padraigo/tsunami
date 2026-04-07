@@ -74,8 +74,19 @@ def _downsample(arr: np.ndarray, target: int = 50) -> np.ndarray:
     return arr[::sy, ::sx]
 
 
-def _save_frames(frames: list[tuple[float, SWEState]], grid: Grid, results_dir: Path, max_frames: int = 15):
-    """Downsample and persist frame snapshots for frontend animation."""
+def _save_frames(
+    frames: list[tuple[float, SWEState]],
+    grid: Grid,
+    results_dir: Path,
+    raw_depth: np.ndarray | None = None,
+    max_frames: int = 15,
+):
+    """Downsample and persist frame snapshots for frontend animation.
+
+    Args:
+        raw_depth: Unsmoothed depth array for land masking in the renderer.
+                   If None, uses grid.depth (which may be smoothed).
+    """
     if not frames:
         return
     step = max(1, len(frames) // max_frames)
@@ -94,6 +105,10 @@ def _save_frames(frames: list[tuple[float, SWEState]], grid: Grid, results_dir: 
     frame_data = []
     for t, state in selected:
         eta = _downsample(state.eta)
+        # Zero out wave on land cells using raw depth for accurate masking
+        mask_depth = raw_depth if raw_depth is not None else grid.depth
+        mask_ds = _downsample(mask_depth)
+        eta = np.where(mask_ds <= 0, 0.0, eta)
         eta = np.where(np.abs(eta) < 0.001, 0.0, eta)
         eta_bytes = eta.astype(np.float32).tobytes()
         frame_data.append({
@@ -101,7 +116,9 @@ def _save_frames(frames: list[tuple[float, SWEState]], grid: Grid, results_dir: 
             "eta_base64": base64.b64encode(eta_bytes).decode("ascii"),
         })
 
-    depth_ds = _downsample(grid.depth)
+    # Use raw (unsmoothed) depth for the display mask
+    mask_depth = raw_depth if raw_depth is not None else grid.depth
+    depth_ds = _downsample(mask_depth)
     depth_bytes = depth_ds.astype(np.float32).tobytes()
 
     payload = {
@@ -224,6 +241,8 @@ async def run_coarse(uid: str, db: AsyncSession = Depends(get_db)):
         depth = np.nan_to_num(depth, nan=0.0, posinf=0.0, neginf=0.0)
         # Mask inland water bodies (lakes, rivers) — only ocean-connected cells stay wet
         depth = _mask_inland_water(depth)
+        # Save raw depth for display masking (before smoothing blurs coastlines)
+        raw_depth = depth.copy()
         # Gentle smooth for solver stability
         from scipy.ndimage import uniform_filter
         if depth.size > 100:
@@ -286,7 +305,7 @@ async def run_coarse(uid: str, db: AsyncSession = Depends(get_db)):
         results_dir.mkdir(parents=True, exist_ok=True)
 
         np.save(str(results_dir / "max_heights.npy"), max_heights)
-        _save_frames(frames, grid, results_dir)
+        _save_frames(frames, grid, results_dir, raw_depth=raw_depth)
         _save_coarse_frames(frames, grid, results_dir)
 
         impacts_data = [
