@@ -25,12 +25,22 @@ export default function TidalMode() {
       <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Global Tides</h3>
       <label className="block">
         <span className="text-xs text-slate-400">Start Date/Time (UTC)</span>
-        <input
-          type="datetime-local"
-          value={datetime}
-          onChange={(e) => setDatetime(e.target.value)}
-          className="mt-1 block w-full rounded bg-slate-700 px-2 py-1 text-sm"
-        />
+        <div className="mt-1 flex gap-1">
+          <input
+            type="datetime-local"
+            value={datetime}
+            onChange={(e) => setDatetime(e.target.value)}
+            className="block flex-1 rounded bg-slate-700 px-2 py-1 text-sm"
+          />
+          <button
+            type="button"
+            onClick={() => setDatetime(new Date().toISOString().slice(0, 16))}
+            className="rounded bg-slate-600 px-2 py-1 text-xs hover:bg-slate-500"
+            title="Set to current time"
+          >
+            Now
+          </button>
+        </div>
       </label>
       <button
         onClick={() => computeTides(new Date(datetime).toISOString())}
