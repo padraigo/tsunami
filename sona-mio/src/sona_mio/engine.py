@@ -14,7 +14,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
 
 from sona_mio.models import Case, Parent
-from sona_mio.tax import ZERO, TaxBreakdown, estimate_annual_tax
+from sona_mio.tax import ZERO, TaxBreakdown, estimate_total_tax
 
 TWELVE = Decimal("12")
 CENT = Decimal("0.01")
@@ -58,29 +58,63 @@ def child_multiplier(children: int) -> Decimal:
 @dataclass
 class ParentNDI:
     label: str
-    gross: Decimal
+    wages: Decimal                    # W-2 (Line 1a)
+    court_rental_income: Decimal      # §4058 (depreciation added back)
+    schedule_e_taxable: Decimal       # what IRS sees (may be < 0)
+    court_total_income: Decimal       # wages + court_rental_income
     taxes: TaxBreakdown
     statutory_deductions: Decimal     # §4059
     annual_ndi: Decimal
     monthly_ndi: Decimal
 
+    @property
+    def gross(self) -> Decimal:
+        """Back-compat alias — court-cognizable total income."""
+        return self.court_total_income
+
 
 def parent_ndi(parent: Parent) -> ParentNDI:
-    """Compute one parent's Net Disposable Income per §4059."""
-    if parent.w2_wages is None:
-        raise ValueError(f"{parent.label}: W-2 wages not yet provided (run `intake`)")
-    gross = parent.w2_wages
-    taxes = estimate_annual_tax(
-        wages=gross,
+    """Compute one parent's Net Disposable Income per §4059.
+
+    Income mix per PRD v3.2: W-2 wages (Line 1a) and/or Schedule E rental.
+    The §4058 court-cognizable income adds depreciation back; the tax
+    estimator sees the post-depreciation Schedule E taxable amount.
+    """
+    has_wages = parent.w2_wages is not None
+    has_rental = parent.schedule_e is not None
+    if not (has_wages or has_rental):
+        raise ValueError(
+            f"{parent.label}: neither W-2 wages nor Schedule E provided (run `intake`)"
+        )
+
+    wages = parent.w2_wages if has_wages else ZERO
+    if has_rental:
+        court_rental = parent.schedule_e.court_income
+        sched_e_taxable = parent.schedule_e.schedule_e_taxable
+        str_flag = parent.schedule_e.short_term_rental
+    else:
+        court_rental = ZERO
+        sched_e_taxable = ZERO
+        str_flag = False
+
+    taxes = estimate_total_tax(
+        wages=wages,
         filing_status=parent.filing_status,
         pretax_deductions=parent.mandatory_retirement,
+        schedule_e_taxable=sched_e_taxable,
+        str_rental=str_flag,
     )
     statutory = parent.health_premiums + parent.mandatory_retirement + parent.union_dues
-    annual_ndi = gross - taxes.total - statutory
+    court_total = wages + court_rental
+    annual_ndi = court_total - taxes.total - statutory
     monthly_ndi = annual_ndi / TWELVE
+
     return ParentNDI(
         label=parent.label,
-        gross=gross,
+        wages=wages,
+        court_rental_income=court_rental,
+        schedule_e_taxable=sched_e_taxable,
+        court_total_income=court_total,
         taxes=taxes,
         statutory_deductions=statutory,
         annual_ndi=annual_ndi,
@@ -109,6 +143,21 @@ def _quantize(value: Decimal) -> Decimal:
     return value.quantize(CENT, rounding=ROUND_HALF_UP)
 
 
+def _scale_ndi(p: "ParentNDI", scale: Decimal) -> "ParentNDI":
+    """Proportionally shrink NDI when a §4057 stipulated cap binds."""
+    return ParentNDI(
+        label=p.label,
+        wages=p.wages,
+        court_rental_income=p.court_rental_income,
+        schedule_e_taxable=p.schedule_e_taxable,
+        court_total_income=p.court_total_income,
+        taxes=p.taxes,
+        statutory_deductions=p.statutory_deductions,
+        annual_ndi=p.annual_ndi * scale,
+        monthly_ndi=p.monthly_ndi * scale,
+    )
+
+
 def compute_guideline(case: Case) -> GuidelineResult:
     """Run the full §4055 + §4059 + §4062 calculation for ``case``.
 
@@ -123,22 +172,8 @@ def compute_guideline(case: Case) -> GuidelineResult:
     combined_annual = p1.annual_ndi + p2.annual_ndi
     if case.stipulated_income_cap is not None and combined_annual > case.stipulated_income_cap:
         scale = case.stipulated_income_cap / combined_annual
-        p1 = ParentNDI(
-            label=p1.label,
-            gross=p1.gross,
-            taxes=p1.taxes,
-            statutory_deductions=p1.statutory_deductions,
-            annual_ndi=p1.annual_ndi * scale,
-            monthly_ndi=p1.monthly_ndi * scale,
-        )
-        p2 = ParentNDI(
-            label=p2.label,
-            gross=p2.gross,
-            taxes=p2.taxes,
-            statutory_deductions=p2.statutory_deductions,
-            annual_ndi=p2.annual_ndi * scale,
-            monthly_ndi=p2.monthly_ndi * scale,
-        )
+        p1 = _scale_ndi(p1, scale)
+        p2 = _scale_ndi(p2, scale)
 
     tn = p1.monthly_ndi + p2.monthly_ndi
     if tn <= 0:

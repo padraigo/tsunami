@@ -139,16 +139,77 @@ ADDITIONAL_MEDICARE_THRESHOLD = {
     "mfj":    Decimal("250000"),
 }
 
+# NIIT (IRC §1411) — Net Investment Income Tax. Applies to passive rental
+# income above MAGI threshold; capped at MAGI excess.
+NIIT_RATE = Decimal("0.038")
+NIIT_THRESHOLD = {
+    "single": Decimal("200000"),
+    "hoh":    Decimal("200000"),
+    "mfj":    Decimal("250000"),
+}
+
 
 @dataclass
 class TaxBreakdown:
     federal: Decimal
     state: Decimal
     fica: Decimal
+    niit: Decimal = ZERO
 
     @property
     def total(self) -> Decimal:
-        return self.federal + self.state + self.fica
+        return self.federal + self.state + self.fica + self.niit
+
+
+def estimate_total_tax(
+    wages: Decimal,
+    filing_status: str = "single",
+    pretax_deductions: Decimal = ZERO,
+    schedule_e_taxable: Decimal = ZERO,
+    str_rental: bool = False,
+) -> TaxBreakdown:
+    """Combined federal + CA + FICA + NIIT estimator for wages and rental.
+
+    ``schedule_e_taxable`` is Schedule E Line 26 (gross rents − cash expenses
+    − mortgage interest − depreciation). It may be negative; PAL rules (IRC
+    §469) suspend passive losses against W-2 income for high-AGI taxpayers,
+    so for income-tax purposes we floor the rental contribution at zero.
+
+    ``str_rental=True`` treats the rental as a trade-or-business (short-term
+    rental / Airbnb with substantial services), in which case FICA applies
+    to the rental net as well.
+    """
+    fs = filing_status.lower()
+    if fs not in FEDERAL_2024:
+        raise ValueError(f"unsupported filing status: {filing_status!r}")
+
+    # PAL: passive losses don't offset W-2 income for high earners (PRD FR-3.4).
+    effective_rental = max(ZERO, schedule_e_taxable)
+    taxable_combined = wages + effective_rental
+
+    fed_taxable = max(ZERO, taxable_combined - pretax_deductions - FEDERAL_STANDARD_DEDUCTION_2024[fs])
+    federal = _apply_brackets(fed_taxable, FEDERAL_2024[fs])
+
+    ca_taxable = max(ZERO, taxable_combined - pretax_deductions - CA_STANDARD_DEDUCTION_2024[fs])
+    state = _apply_brackets(ca_taxable, CA_2024[fs])
+
+    # FICA base: wages only by default; STR rental is added per FR-4.4.
+    fica_base = wages + (effective_rental if str_rental else ZERO)
+    ss = min(fica_base, SS_WAGE_BASE_2024) * SS_RATE
+    medicare = fica_base * MEDICARE_RATE
+    addl = max(ZERO, fica_base - ADDITIONAL_MEDICARE_THRESHOLD[fs]) * ADDITIONAL_MEDICARE_RATE
+    fica = ss + medicare + addl
+
+    # NIIT: 3.8% on net investment income, capped at MAGI excess. STR is
+    # earned (Schedule C-equiv) and thus not subject to NIIT.
+    if str_rental:
+        niit = ZERO
+    else:
+        nii = effective_rental
+        magi_excess = max(ZERO, taxable_combined - NIIT_THRESHOLD[fs])
+        niit = min(nii, magi_excess) * NIIT_RATE
+
+    return TaxBreakdown(federal=federal, state=state, fica=fica, niit=niit)
 
 
 def estimate_annual_tax(
@@ -156,24 +217,12 @@ def estimate_annual_tax(
     filing_status: str = "single",
     pretax_deductions: Decimal = ZERO,
 ) -> TaxBreakdown:
-    """Estimate combined annual tax burden on W-2 ``wages``.
-
-    ``pretax_deductions`` (e.g. mandatory retirement contributions that reduce
-    federal/state taxable wages but not FICA) lowers income-tax exposure only.
+    """Wages-only tax estimator. Thin wrapper over :func:`estimate_total_tax`
+    that keeps the v3.1 W-2-only call sites working unchanged.
     """
-    fs = filing_status.lower()
-    if fs not in FEDERAL_2024:
-        raise ValueError(f"unsupported filing status: {filing_status!r}")
-
-    fed_taxable = max(ZERO, wages - pretax_deductions - FEDERAL_STANDARD_DEDUCTION_2024[fs])
-    federal = _apply_brackets(fed_taxable, FEDERAL_2024[fs])
-
-    ca_taxable = max(ZERO, wages - pretax_deductions - CA_STANDARD_DEDUCTION_2024[fs])
-    state = _apply_brackets(ca_taxable, CA_2024[fs])
-
-    ss = min(wages, SS_WAGE_BASE_2024) * SS_RATE
-    medicare = wages * MEDICARE_RATE
-    addl = max(ZERO, wages - ADDITIONAL_MEDICARE_THRESHOLD[fs]) * ADDITIONAL_MEDICARE_RATE
-    fica = ss + medicare + addl
-
-    return TaxBreakdown(federal=federal, state=state, fica=fica)
+    return estimate_total_tax(
+        wages=wages,
+        filing_status=filing_status,
+        pretax_deductions=pretax_deductions,
+        schedule_e_taxable=ZERO,
+    )

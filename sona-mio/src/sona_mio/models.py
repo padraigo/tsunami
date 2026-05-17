@@ -23,6 +23,70 @@ def _d(value: Any) -> Decimal:
 
 
 @dataclass
+class ScheduleE:
+    """Per-parent aggregated rental real-estate income (PRD v3.2 Epic 4).
+
+    Captures the inputs needed to compute *both* (a) what the IRS sees on
+    Schedule E (depreciation deducted) and (b) the §4058 court-cognizable
+    income (depreciation added back per *Marriage of Loh* / *Berger*).
+
+    Multi-property line-item tracking is V3; v3.2 aggregates everything
+    at the parent level.
+    """
+
+    gross_rents: Decimal = ZERO
+    cash_operating_expenses: Decimal = ZERO  # taxes, ins, repairs, mgmt, HOA
+    mortgage_interest: Decimal = ZERO
+    depreciation: Decimal = ZERO             # captured, not subtracted by default
+    treat_depreciation_as_cash: bool = False # default: court adds depreciation back
+    short_term_rental: bool = False          # Airbnb / trade-or-business → FICA applies
+
+    @property
+    def court_income(self) -> Decimal:
+        """§4058 court-cognizable rental income (floored at zero).
+
+        Depreciation is excluded unless ``treat_depreciation_as_cash`` is set
+        — a stipulated deviation that must be ordered explicitly.
+        """
+        deductible = self.cash_operating_expenses + self.mortgage_interest
+        if self.treat_depreciation_as_cash:
+            deductible += self.depreciation
+        income = self.gross_rents - deductible
+        return income if income > ZERO else ZERO
+
+    @property
+    def schedule_e_taxable(self) -> Decimal:
+        """Schedule E Line 26 — what the IRS actually taxes (can be negative)."""
+        return (
+            self.gross_rents
+            - self.cash_operating_expenses
+            - self.mortgage_interest
+            - self.depreciation
+        )
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "gross_rents": str(self.gross_rents),
+            "cash_operating_expenses": str(self.cash_operating_expenses),
+            "mortgage_interest": str(self.mortgage_interest),
+            "depreciation": str(self.depreciation),
+            "treat_depreciation_as_cash": self.treat_depreciation_as_cash,
+            "short_term_rental": self.short_term_rental,
+        }
+
+    @classmethod
+    def from_json(cls, data: dict[str, Any]) -> "ScheduleE":
+        return cls(
+            gross_rents=_d(data.get("gross_rents")),
+            cash_operating_expenses=_d(data.get("cash_operating_expenses")),
+            mortgage_interest=_d(data.get("mortgage_interest")),
+            depreciation=_d(data.get("depreciation")),
+            treat_depreciation_as_cash=bool(data.get("treat_depreciation_as_cash", False)),
+            short_term_rental=bool(data.get("short_term_rental", False)),
+        )
+
+
+@dataclass
 class Parent:
     """Per-parent inputs for the symmetric calculation."""
 
@@ -38,17 +102,26 @@ class Parent:
     mandatory_retirement: Decimal = ZERO # §4059
     union_dues: Decimal = ZERO           # §4059
 
+    # Non-wage income — PRD v3.2.
+    schedule_e: "ScheduleE | None" = None
+
     def to_json(self) -> dict[str, Any]:
-        d = asdict(self)
-        for k, v in d.items():
-            if isinstance(v, Decimal):
-                d[k] = str(v)
-        if self.w2_wages is not None:
-            d["w2_wages"] = str(self.w2_wages)
-        return d
+        return {
+            "label": self.label,
+            "name": self.name,
+            "base_salary": str(self.base_salary),
+            "timeshare": str(self.timeshare),
+            "filing_status": self.filing_status,
+            "w2_wages": str(self.w2_wages) if self.w2_wages is not None else None,
+            "health_premiums": str(self.health_premiums),
+            "mandatory_retirement": str(self.mandatory_retirement),
+            "union_dues": str(self.union_dues),
+            "schedule_e": self.schedule_e.to_json() if self.schedule_e is not None else None,
+        }
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> "Parent":
+        sched_e_raw = data.get("schedule_e")
         return cls(
             label=data["label"],
             name=data.get("name", ""),
@@ -59,6 +132,7 @@ class Parent:
             health_premiums=_d(data.get("health_premiums")),
             mandatory_retirement=_d(data.get("mandatory_retirement")),
             union_dues=_d(data.get("union_dues")),
+            schedule_e=ScheduleE.from_json(sched_e_raw) if sched_e_raw else None,
         )
 
 

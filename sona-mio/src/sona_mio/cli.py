@@ -21,7 +21,7 @@ from typing import Callable
 
 from sona_mio import storage
 from sona_mio.engine import compute_guideline, compute_true_up
-from sona_mio.models import Case, HistoryEntry, Parent
+from sona_mio.models import Case, HistoryEntry, Parent, ScheduleE
 from sona_mio.wizard import confirm, prompt_choice, prompt_decimal, prompt_text
 
 TWELVE = Decimal("12")
@@ -125,6 +125,26 @@ def cmd_intake(args: argparse.Namespace) -> int:
     parent.mandatory_retirement = prompt_decimal("  Mandatory retirement contributions", default=parent.mandatory_retirement, minimum=Decimal("0")) or Decimal("0")
     parent.union_dues = prompt_decimal("  Mandatory union dues", default=parent.union_dues, minimum=Decimal("0")) or Decimal("0")
 
+    print("Input E: Schedule E — rental real estate (PRD v3.2)")
+    if confirm("  Does this parent have rental income?", default=parent.schedule_e is not None):
+        existing = parent.schedule_e or ScheduleE()
+        gross = prompt_decimal("    Gross rents (annual)", default=existing.gross_rents, minimum=Decimal("0")) or Decimal("0")
+        cash_ex = prompt_decimal("    Cash operating expenses (taxes, ins, repairs, mgmt)", default=existing.cash_operating_expenses, minimum=Decimal("0")) or Decimal("0")
+        mortgage = prompt_decimal("    Mortgage interest", default=existing.mortgage_interest, minimum=Decimal("0")) or Decimal("0")
+        depr = prompt_decimal("    Depreciation (captured; added back per CA case law)", default=existing.depreciation, minimum=Decimal("0")) or Decimal("0")
+        treat_depr_cash = confirm("    Treat depreciation as cash expense? (requires stipulation)", default=existing.treat_depreciation_as_cash)
+        str_flag = confirm("    Short-term rental / Airbnb (FICA applies if yes)?", default=existing.short_term_rental)
+        parent.schedule_e = ScheduleE(
+            gross_rents=gross,
+            cash_operating_expenses=cash_ex,
+            mortgage_interest=mortgage,
+            depreciation=depr,
+            treat_depreciation_as_cash=treat_depr_cash,
+            short_term_rental=str_flag,
+        )
+    else:
+        parent.schedule_e = None
+
     storage.save(case, _resolve_case_dir(args))
     print(f"\n✓ {label.upper()} intake stored.")
     return 0
@@ -182,6 +202,12 @@ def cmd_true_up(args: argparse.Namespace) -> int:
     invoice = compute_true_up(case, case.current_year, guideline)
 
     _print_section(f"Reconciliation & True-Up — Year {invoice.closing_year}")
+    for label, n in (("P1", guideline.p1_ndi), ("P2", guideline.p2_ndi)):
+        rental_note = ""
+        if n.court_rental_income > Decimal("0"):
+            rental_note = f"  (wages {_money(n.wages)} + court rental {_money(n.court_rental_income)})"
+        niit_note = f"  NIIT {_money(n.taxes.niit)}" if n.taxes.niit > 0 else ""
+        print(f"  {label} monthly NDI:    {_money(n.monthly_ndi)}{rental_note}{niit_note}")
     print(f"Combined monthly NDI:   {_money(guideline.combined_monthly_ndi)}")
     print(f"K factor:               {guideline.k:.4f}")
     print(f"Child multiplier ({case.children}): {guideline.multiplier}")
@@ -227,6 +253,8 @@ def cmd_true_up(args: argparse.Namespace) -> int:
         case.uninsured_medical = Decimal("0")
         case.p1.w2_wages = None
         case.p2.w2_wages = None
+        case.p1.schedule_e = None
+        case.p2.schedule_e = None
         # Promote base salary to whatever was last entered during intake.
         case.baseline_effective_date = f"{case.current_year}-05-01"
         storage.save(case, case_dir)
@@ -268,6 +296,14 @@ def cmd_show(args: argparse.Namespace) -> int:
         print(f"  filing status:  {p.filing_status}")
         print(f"  W-2 (Line 1a):  {_money(p.w2_wages)}")
         print(f"  §4059 deductions: health {_money(p.health_premiums)}  retire {_money(p.mandatory_retirement)}  union {_money(p.union_dues)}")
+        if p.schedule_e is not None:
+            se = p.schedule_e
+            print(f"  Schedule E: gross {_money(se.gross_rents)}  cash-ex {_money(se.cash_operating_expenses)}  interest {_money(se.mortgage_interest)}  depr {_money(se.depreciation)}")
+            print(f"              court income (§4058): {_money(se.court_income)}   schedule_e_taxable: {_money(se.schedule_e_taxable)}")
+            if se.treat_depreciation_as_cash:
+                print(f"              ⚠ depreciation treated as cash (stipulated deviation)")
+            if se.short_term_rental:
+                print(f"              ⚠ short-term rental — FICA applies to rental net")
     _print_section("Baseline & Ledger")
     print(f"  obligor:               {case.baseline_obligor.upper()}")
     print(f"  monthly:               {_money(case.baseline_monthly)}")
