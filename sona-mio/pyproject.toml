@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sona-mio"
+version = "0.1.0"
+description = "Sona Mio SD-CSRP: Symmetric Dynamic Child Support Recalculation Platform (CA W-2 V1)"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Sona Mio" }]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+sona-mio = "sona_mio.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
