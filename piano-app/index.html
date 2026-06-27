@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Piano Tutor — learn to read &amp; play sheet music</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🎹</text></svg>" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>🎹 Piano Tutor</h1>
+    <p class="tagline">Read the score, hear it played, then play it back and get graded.</p>
+  </header>
+
+  <main>
+    <section class="controls" aria-label="Controls">
+      <div class="control">
+        <label for="song-select">Song</label>
+        <select id="song-select"></select>
+      </div>
+
+      <div class="control tempo">
+        <label for="tempo">Tempo <span id="tempo-label">100 BPM</span></label>
+        <input type="range" id="tempo" min="40" max="208" step="1" value="100" />
+      </div>
+
+      <div class="control checks">
+        <label><input type="checkbox" id="metronome-toggle" checked /> Metronome</label>
+        <label><input type="checkbox" id="countin-toggle" checked /> Count-in</label>
+      </div>
+
+      <div class="control buttons">
+        <button id="listen-btn" class="btn primary">▶ Listen</button>
+        <button id="practice-btn" class="btn accent">🎤 Practice</button>
+        <button id="stop-btn" class="btn" disabled>■ Stop</button>
+      </div>
+    </section>
+
+    <p id="status" class="status">Loading…</p>
+    <p id="live-note" class="live-note" aria-live="polite"></p>
+
+    <section id="sheet" class="sheet" aria-label="Sheet music"></section>
+
+    <section id="score-panel" class="score-panel" hidden></section>
+
+    <details class="help">
+      <summary>How it works &amp; tips</summary>
+      <ul>
+        <li><strong>Listen</strong> plays the piece with a synthesized piano while
+          highlighting each note in time with the beat.</li>
+        <li><strong>Practice</strong> gives a one-bar count-in, then listens through
+          your microphone while you play. It grades each note by pitch and shows
+          your accuracy. Run it on <code>http://localhost</code> or HTTPS so the
+          browser allows microphone access.</li>
+        <li>Use the <strong>Tempo</strong> slider to slow tricky passages down — the
+          note highlighting and metronome follow the BPM exactly.</li>
+        <li>Supports whole, half, quarter, eighth and sixteenth notes, dotted
+          notes, rests, accidentals and time signatures.</li>
+      </ul>
+    </details>
+  </main>
+
+  <!-- VexFlow for music engraving (vendored locally; UMD build exposes `Vex`). -->
+  <script src="vendor/vexflow.js"></script>
+  <script src="js/music.js"></script>
+  <script src="js/songs.js"></script>
+  <script src="js/notation.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/pitch.js"></script>
+  <script src="js/scorer.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
