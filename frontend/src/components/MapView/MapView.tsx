@@ -427,9 +427,6 @@ export default function MapView() {
       return
     }
 
-    // Dim OSM tiles so the elevation map dominates
-    if (map.getLayer('osm')) map.setPaintProperty('osm', 'raster-opacity', 0.15)
-
     // Use server-rendered PNG. Span: lat -85..85 (Mercator limit), lon exactly
     // -180..180 (the PNG has no wrap columns — corners must match this span)
     const pngUrl = '/api/bathymetry/global-depth.png?resolution_km=100'
@@ -441,6 +438,8 @@ export default function MapView() {
     ]
 
     const addLayer = () => {
+      // Dim OSM tiles so the elevation map dominates
+      if (map.getLayer('osm')) map.setPaintProperty('osm', 'raster-opacity', 0.15)
       if (map.getSource('depth-frame')) {
         (map.getSource('depth-frame') as any).updateImage({ url: pngUrl, coordinates })
       } else {
@@ -459,10 +458,14 @@ export default function MapView() {
       }
     }
 
+    // 'idle' (unlike 'load') fires again after every style settle, and the
+    // listener is removed on cleanup so a stale callback can't re-add the
+    // overlay after toggling back to standard mode.
     if (map.isStyleLoaded()) addLayer()
-    else map.once('load', addLayer)
+    else map.once('idle', addLayer)
 
     return () => {
+      map.off('idle', addLayer)
       if (map.getLayer('depth-layer')) map.removeLayer('depth-layer')
       if (map.getSource('depth-frame')) map.removeSource('depth-frame')
     }
