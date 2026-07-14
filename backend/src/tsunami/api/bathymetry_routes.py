@@ -91,9 +91,6 @@ async def global_depth_png(
 
     depth_ds = depth[::sy, ::sx]
 
-    # Wrap longitudinally so the image spans past the dateline
-    depth_ds = np.column_stack([depth_ds[:, -1:], depth_ds, depth_ds[:, :1]])
-
     # Flip rows so index 0 = north (top of image), since data has row 0 = south
     depth_ds = depth_ds[::-1, :]
 
@@ -128,8 +125,9 @@ async def global_depth_png(
         valid_rows[row] = True
 
     rgba = _depth_to_rgba(warped)
-    # Rows outside the source data range have no data — transparent, not land
-    rgba[~valid_rows, :, 3] = 0
+    # Rows outside the source data range have no data — fully zero them
+    # (not just alpha) so nothing can bleed through linear sampling
+    rgba[~valid_rows] = 0
     img = Image.fromarray(rgba, mode="RGBA")
     buf = io.BytesIO()
     img.save(buf, format="PNG")

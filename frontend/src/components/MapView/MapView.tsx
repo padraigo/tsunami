@@ -430,7 +430,8 @@ export default function MapView() {
     // Dim OSM tiles so the elevation map dominates
     if (map.getLayer('osm')) map.setPaintProperty('osm', 'raster-opacity', 0.15)
 
-    // Use server-rendered PNG. Span: lat -85..85 (Mercator limit), lon -180..180
+    // Use server-rendered PNG. Span: lat -85..85 (Mercator limit), lon exactly
+    // -180..180 (the PNG has no wrap columns — corners must match this span)
     const pngUrl = '/api/bathymetry/global-depth.png?resolution_km=100'
     const coordinates: [[number, number], [number, number], [number, number], [number, number]] = [
       [-180, 85],

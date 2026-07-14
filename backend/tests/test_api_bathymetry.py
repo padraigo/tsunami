@@ -60,6 +60,22 @@ async def test_png_polar_bands_transparent(client):
     assert (arr[arr.shape[0] // 2, :, 3] == 255).all()  # equator opaque
 
 
+async def test_png_width_has_no_wrap_columns(client):
+    """Image must span exactly -180..180 — the frontend pins corners there."""
+    from PIL import Image
+
+    from tsunami.api.tides import _get_land_mask
+
+    resp = await client.get("/api/bathymetry/global-depth.png?resolution_km=500")
+    img = Image.open(io.BytesIO(resp.content))
+
+    depth, _ = _get_land_mask(500.0)
+    ny, nx = depth.shape
+    sx = max(1, nx // 160)
+    expected_width = len(range(0, nx, sx))
+    assert img.width == expected_width
+
+
 async def test_land_mask_cache_filename_preserves_fraction(app):
     from tsunami.api.tides import _get_land_mask
     from tsunami.config import get_settings
