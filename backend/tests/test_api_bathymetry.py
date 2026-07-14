@@ -1,7 +1,9 @@
 """Tests for bathymetry endpoints."""
 
+import io
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from tsunami.api import tides as tides_module
@@ -43,6 +45,19 @@ async def test_tides_compute_rejects_dos_resolution(client):
         "resolution_km": 0.01,
     })
     assert resp.status_code == 422
+
+
+async def test_png_polar_bands_transparent(client):
+    """Rows outside the ±80° data range must be transparent, not green land."""
+    from PIL import Image
+
+    resp = await client.get("/api/bathymetry/global-depth.png?resolution_km=500")
+    assert resp.status_code == 200
+    arr = np.asarray(Image.open(io.BytesIO(resp.content)))
+
+    assert (arr[0, :, 3] == 0).all()      # top row (85N) transparent
+    assert (arr[-1, :, 3] == 0).all()     # bottom row (85S) transparent
+    assert (arr[arr.shape[0] // 2, :, 3] == 255).all()  # equator opaque
 
 
 async def test_land_mask_cache_filename_preserves_fraction(app):

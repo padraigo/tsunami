@@ -115,6 +115,7 @@ async def global_depth_png(
     merc_min = merc_y(dst_lat_min)
 
     warped = np.zeros((dst_rows, depth_ds.shape[1]), dtype=np.float32)
+    valid_rows = np.zeros(dst_rows, dtype=bool)
     for row in range(dst_rows):
         frac = row / (dst_rows - 1)
         merc_val = merc_max - frac * (merc_max - merc_min)
@@ -124,8 +125,11 @@ async def global_depth_png(
         src_row_f = ((src_lat_max - lat_deg) / (src_lat_max - src_lat_min)) * (src_rows - 1)
         src_row = int(round(max(0, min(src_rows - 1, src_row_f))))
         warped[row, :] = depth_ds[src_row, :]
+        valid_rows[row] = True
 
     rgba = _depth_to_rgba(warped)
+    # Rows outside the source data range have no data — transparent, not land
+    rgba[~valid_rows, :, 3] = 0
     img = Image.fromarray(rgba, mode="RGBA")
     buf = io.BytesIO()
     img.save(buf, format="PNG")
