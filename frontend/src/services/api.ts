@@ -64,10 +64,6 @@ export const api = {
         body: JSON.stringify(payload),
       }),
   },
-  bathymetry: {
-    globalDepth: (resolution_km?: number) =>
-      apiFetch<FramesResponse>(`/bathymetry/global-depth?resolution_km=${resolution_km ?? 100}`),
-  },
   presets: {
     locations: () => apiFetch<Preset[]>('/presets/locations'),
   },

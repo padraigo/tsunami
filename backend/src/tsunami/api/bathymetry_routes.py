@@ -1,17 +1,15 @@
 """Bathymetry data endpoints."""
 
 import asyncio
-import base64
 import io
 
 import numpy as np
 from fastapi import APIRouter, Query
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import Response
 
 from tsunami.api.tides import _get_land_mask
 from tsunami.bathymetry.service import BathymetryService
 from tsunami.config import get_settings
-from tsunami.simulation.grid import create_grid
 
 router = APIRouter(tags=["bathymetry"])
 
@@ -70,58 +68,6 @@ async def check_bathymetry(
 ):
     service = BathymetryService(cache_dir=get_settings().bathymetry_cache_dir)
     return service.check_availability(lat_min, lat_max, lon_min, lon_max)
-
-
-@router.get("/bathymetry/global-depth")
-async def global_depth(
-    resolution_km: float = Query(default=100.0),
-):
-    """Return a downsampled global depth grid."""
-    grid = create_grid(
-        lat_min=-80.0, lat_max=80.0,
-        lon_min=-180.0, lon_max=180.0,
-        resolution_km=resolution_km,
-    )
-
-    depth, _land_mask_arr = await asyncio.to_thread(_get_land_mask, resolution_km)
-
-    # Downsample to ~80x80 target
-    target = 80
-    ny, nx = depth.shape
-    sy = max(1, ny // target)
-    sx = max(1, nx // target)
-
-    def downsample(arr: np.ndarray) -> np.ndarray:
-        return arr[::sy, ::sx]
-
-    depth_ds = downsample(depth)
-    frame_rows, frame_cols = depth_ds.shape
-
-    # Add 2 wrap columns for dateline overlap
-    def add_wrap_cols(arr: np.ndarray) -> np.ndarray:
-        return np.column_stack([arr[:, -1], arr, arr[:, 0]])
-
-    depth_ds = add_wrap_cols(depth_ds)
-    frame_cols_out = frame_cols + 2
-
-    # Extend lon bounds past -180/180 by one cell width
-    ds_lon = grid.lon[::sx]
-    dlon = float(ds_lon[1] - ds_lon[0]) if len(ds_lon) > 1 else 4.0
-
-    payload = {
-        "grid_bounds": {
-            "lat_min": -85.0,
-            "lat_max": 85.0,
-            "lon_min": -180.0 - dlon,
-            "lon_max": 180.0 + dlon,
-        },
-        "frame_rows": frame_rows,
-        "frame_cols": frame_cols_out,
-        "depth_base64": base64.b64encode(depth_ds.astype(np.float32).tobytes()).decode("ascii"),
-        "frames": [],
-    }
-
-    return JSONResponse(content=payload)
 
 
 @router.get("/bathymetry/global-depth.png")
