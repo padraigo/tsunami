@@ -4,6 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { useSimulationStore } from '../../stores/simulationStore'
 import { useMapPickStore } from '../../stores/mapPickStore'
 import TimelineSlider from './TimelineSlider'
+import ColorLegend from './ColorLegend'
 
 function decodeFrame(base64: string, _rows: number, _cols: number): Float32Array {
   const binary = atob(base64)
@@ -104,7 +105,7 @@ export default function MapView() {
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
   const pickMarkerRef = useRef<maplibregl.Marker | null>(null)
-  const { current, coarseResult, frames, currentFrameIndex, detailZones, tidalMode } = useSimulationStore()
+  const { current, coarseResult, frames, currentFrameIndex, detailZones, tidalMode, mapMode } = useSimulationStore()
   const pickPhase = useMapPickStore((s) => s.phase)
   const pickLat = useMapPickStore((s) => s.lat)
   const pickLon = useMapPickStore((s) => s.lon)
@@ -414,6 +415,58 @@ export default function MapView() {
     }
   }, [detailZones])
 
+  // Elevation/depth overlay — uses a server-rendered PNG directly
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    if (mapMode !== 'elevation') {
+      if (map.getLayer('depth-layer')) map.removeLayer('depth-layer')
+      if (map.getSource('depth-frame')) map.removeSource('depth-frame')
+      if (map.getLayer('osm')) map.setPaintProperty('osm', 'raster-opacity', 1)
+      return
+    }
+
+    // Dim OSM tiles so the elevation map dominates
+    if (map.getLayer('osm')) map.setPaintProperty('osm', 'raster-opacity', 0.15)
+
+    // Use server-rendered PNG. Span: lat -85..85 (Mercator limit), lon -180..180
+    const pngUrl = '/api/bathymetry/global-depth.png?resolution_km=100'
+    const coordinates: [[number, number], [number, number], [number, number], [number, number]] = [
+      [-180, 85],
+      [180, 85],
+      [180, -85],
+      [-180, -85],
+    ]
+
+    const addLayer = () => {
+      if (map.getSource('depth-frame')) {
+        (map.getSource('depth-frame') as any).updateImage({ url: pngUrl, coordinates })
+      } else {
+        map.addSource('depth-frame', { type: 'image', url: pngUrl, coordinates })
+        const beforeLayer = map.getLayer('wave-frame-layer') ? 'wave-frame-layer'
+          : map.getLayer('impact-circles') ? 'impact-circles'
+          : undefined
+        map.addLayer({
+          id: 'depth-layer',
+          type: 'raster',
+          source: 'depth-frame',
+          paint: {
+            'raster-opacity': 0.95,
+          },
+        }, beforeLayer)
+      }
+    }
+
+    if (map.isStyleLoaded()) addLayer()
+    else map.once('load', addLayer)
+
+    return () => {
+      if (map.getLayer('depth-layer')) map.removeLayer('depth-layer')
+      if (map.getSource('depth-frame')) map.removeSource('depth-frame')
+    }
+  }, [mapMode])
+
   // Wave animation frame
   useEffect(() => {
     const map = mapRef.current
@@ -478,6 +531,17 @@ export default function MapView() {
   return (
     <div className="relative h-full w-full">
       <div ref={mapContainer} className="h-full w-full" />
+      <button
+        onClick={() => useSimulationStore.getState().toggleMapMode()}
+        className={`absolute top-2 left-2 z-20 rounded px-3 py-1.5 text-xs font-medium shadow transition-colors ${
+          mapMode === 'elevation'
+            ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+            : 'bg-slate-700/90 text-slate-300 hover:bg-slate-600'
+        }`}
+      >
+        {mapMode === 'elevation' ? 'Elevation View' : 'Standard Map'}
+      </button>
+      <ColorLegend />
       <TimelineSlider />
     </div>
   )

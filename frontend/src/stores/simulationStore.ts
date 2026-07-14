@@ -14,11 +14,13 @@ interface SimulationState {
   progress: number
   presets: Preset[]
   tidalMode: boolean
+  mapMode: 'standard' | 'elevation'
   loading: boolean
   error: string | null
 
   computeTides: (startDatetime: string) => Promise<void>
   exitTidalMode: () => void
+  toggleMapMode: () => void
   fetchSimulations: () => Promise<void>
   createSimulation: (payload: CreateSimulationPayload) => Promise<void>
   selectSimulation: (uid: string) => Promise<void>
@@ -44,6 +46,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
   isPlaying: false,
   progress: 0,
   tidalMode: false,
+  mapMode: 'standard',
   presets: [],
   loading: false,
   error: null,
@@ -59,6 +62,10 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
   },
 
   exitTidalMode: () => set({ tidalMode: false, frames: null, currentFrameIndex: 0, isPlaying: false }),
+
+  toggleMapMode: () => {
+    set((s) => ({ mapMode: s.mapMode === 'standard' ? 'elevation' : 'standard' }))
+  },
 
   fetchSimulations: async () => {
     set({ loading: true })

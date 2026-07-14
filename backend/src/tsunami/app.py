@@ -52,4 +52,8 @@ def create_app() -> FastAPI:
     from tsunami.api import websocket as ws_module
     app.include_router(ws_module.router, prefix="/api")
 
+    # Mount MCP server for AI assistant access
+    from tsunami.mcp.mount import mount_mcp
+    mount_mcp(app)
+
     return app
