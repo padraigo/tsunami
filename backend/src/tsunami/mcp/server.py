@@ -188,8 +188,7 @@ async def tsunami_run_coarse(uid: str) -> str:
     import httpx
     # Delegate to the REST endpoint which handles the full pipeline
     # (SWE solver, impact detection, detail zones, WebSocket broadcasting)
-    settings = get_settings()
-    backend_url = f"http://localhost:8000"
+    backend_url = get_settings().internal_api_url
     async with httpx.AsyncClient(timeout=httpx.Timeout(600.0)) as client:
         resp = await client.post(f"{backend_url}/api/simulations/{uid}/run-coarse")
         if resp.status_code != 200:
@@ -424,7 +423,7 @@ async def tsunami_compute_tides(
     """
     import httpx
     async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
-        resp = await client.post("http://localhost:8000/api/tides/compute", json={
+        resp = await client.post(f"{get_settings().internal_api_url}/api/tides/compute", json={
             "start_datetime": start_datetime,
             "duration_hours": duration_hours,
             "resolution_km": resolution_km,
@@ -472,7 +471,7 @@ async def tsunami_export(uid: str, format: str = "geojson") -> str:
         format: Export format - "geojson" (default)
     """
     return json.dumps({
-        "export_url": f"http://localhost:8001/api/simulations/{uid}/export?format={format}",
+        "export_url": f"{get_settings().public_api_url}/api/simulations/{uid}/export?format={format}",
         "message": f"Download results at the URL above ({format} format).",
     })
 

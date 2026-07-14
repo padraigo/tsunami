@@ -26,6 +26,7 @@ services:
       TSUNAMI_REDIS_URL: redis://redis:6379/0
       TSUNAMI_DATABASE_URL: sqlite+aiosqlite:////app/data/tsunami.db
       TSUNAMI_DATA_DIR: /app/data
+      TSUNAMI_PUBLIC_API_URL: http://localhost:8001
     volumes:
       - ./backend/data:/app/data
     networks:

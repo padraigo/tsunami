@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     results_dir: str = ""
     bathymetry_cache_dir: str = ""
     cors_origins: list[str] = ["http://localhost:5173"]
+    internal_api_url: str = "http://localhost:8000"
+    public_api_url: str = ""
 
     model_config = {"env_prefix": "TSUNAMI_"}
 
@@ -31,6 +33,8 @@ class Settings(BaseSettings):
         os.makedirs(self.data_dir, exist_ok=True)
         os.makedirs(self.results_dir, exist_ok=True)
         os.makedirs(self.bathymetry_cache_dir, exist_ok=True)
+        if not self.public_api_url:
+            self.public_api_url = self.internal_api_url
 
 
 @lru_cache
