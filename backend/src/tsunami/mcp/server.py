@@ -9,12 +9,15 @@ from pathlib import Path
 
 import numpy as np
 from mcp.server.fastmcp import FastMCP
-from sqlalchemy import select
+from pydantic import ValidationError
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from tsunami.api.deps import _get_session_factory
+from tsunami.api.presets import PRESET_LOCATIONS
 from tsunami.config import get_settings
 from tsunami.models import FocusZone, Simulation, ZoneSource
+from tsunami.schemas import FocusZoneCreate, SimulationCreate
 
 mcp = FastMCP(
     "Tsunami Simulator",
@@ -25,12 +28,6 @@ mcp = FastMCP(
         "Use grid_resolution_km=20-50 for fast runs, 2-5 for production quality."
     ),
 )
-
-
-async def _get_db():
-    factory = _get_session_factory()
-    async with factory() as session:
-        yield session
 
 
 async def _get_session():
@@ -47,10 +44,10 @@ async def tsunami_health() -> str:
     try:
         session = await _get_session()
         async with session:
-            result = await session.execute(select(Simulation).limit(1))
-            count_result = await session.execute(select(Simulation))
-            sims = count_result.scalars().all()
-        return json.dumps({"status": "ok", "simulation_count": len(sims)})
+            count = (
+                await session.execute(select(func.count()).select_from(Simulation))
+            ).scalar_one()
+        return json.dumps({"status": "ok", "simulation_count": count})
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
 
@@ -147,9 +144,8 @@ async def tsunami_create_simulation(
     """
     from datetime import datetime as dt
 
-    session = await _get_session()
-    async with session:
-        sim = Simulation(
+    try:
+        payload = SimulationCreate(
             name=name,
             earthquake_lat=earthquake_lat,
             earthquake_lon=earthquake_lon,
@@ -158,9 +154,14 @@ async def tsunami_create_simulation(
             earthquake_depth_km=earthquake_depth_km,
             grid_resolution_km=grid_resolution_km,
             duration_hours=duration_hours,
+            earthquake_datetime=dt.fromisoformat(earthquake_datetime) if earthquake_datetime else None,
         )
-        if earthquake_datetime:
-            sim.earthquake_datetime = dt.fromisoformat(earthquake_datetime)
+    except (ValidationError, ValueError) as e:
+        return json.dumps({"error": f"Invalid parameters: {e}"})
+
+    session = await _get_session()
+    async with session:
+        sim = Simulation(**payload.model_dump())
         session.add(sim)
         await session.commit()
         await session.refresh(sim)
@@ -275,15 +276,7 @@ async def tsunami_list_presets() -> str:
 
     Returns famous historical earthquakes with pre-configured parameters.
     """
-    presets = [
-        {"name": "Tohoku, Japan", "lat": 38.3, "lon": 142.4, "magnitude": 9.1, "direction": 290.0},
-        {"name": "Sumatra, Indonesia", "lat": 3.3, "lon": 95.9, "magnitude": 9.1, "direction": 340.0},
-        {"name": "Chile (Maule)", "lat": -35.8, "lon": -72.7, "magnitude": 8.8, "direction": 280.0},
-        {"name": "Alaska (1964)", "lat": 61.0, "lon": -147.5, "magnitude": 9.2, "direction": 210.0},
-        {"name": "Cascadia (scenario)", "lat": 44.5, "lon": -125.0, "magnitude": 9.0, "direction": 260.0},
-        {"name": "Lisbon (1755)", "lat": 36.0, "lon": -11.0, "magnitude": 8.7, "direction": 300.0},
-    ]
-    return json.dumps(presets, indent=2)
+    return json.dumps(PRESET_LOCATIONS, indent=2)
 
 
 @mcp.tool()
@@ -362,6 +355,17 @@ async def tsunami_create_focus_zone(
         lon_max: Eastern boundary longitude
         grid_resolution_m: Detail grid resolution in meters (default 100m)
     """
+    try:
+        payload = FocusZoneCreate(
+            name=name,
+            lat_min=lat_min, lat_max=lat_max,
+            lon_min=lon_min, lon_max=lon_max,
+            source="user",
+            grid_resolution_m=grid_resolution_m,
+        )
+    except ValidationError as e:
+        return json.dumps({"error": f"Invalid parameters: {e}"})
+
     session = await _get_session()
     async with session:
         result = await session.execute(select(Simulation).where(Simulation.uid == simulation_uid))
@@ -371,11 +375,11 @@ async def tsunami_create_focus_zone(
 
         zone = FocusZone(
             simulation_id=sim.id,
-            name=name,
-            lat_min=lat_min, lat_max=lat_max,
-            lon_min=lon_min, lon_max=lon_max,
+            name=payload.name,
+            lat_min=payload.lat_min, lat_max=payload.lat_max,
+            lon_min=payload.lon_min, lon_max=payload.lon_max,
             source=ZoneSource.USER,
-            grid_resolution_m=grid_resolution_m,
+            grid_resolution_m=payload.grid_resolution_m,
         )
         session.add(zone)
         await session.commit()
@@ -419,7 +423,7 @@ async def tsunami_compute_tides(
     Args:
         start_datetime: UTC datetime (ISO 8601 format, e.g. "2026-03-11T05:46:00Z")
         duration_hours: Animation duration in hours (default 25, max 48)
-        resolution_km: Grid resolution in km (default 100)
+        resolution_km: Grid resolution in km (default 100, valid range 10-1000)
     """
     import httpx
     async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
