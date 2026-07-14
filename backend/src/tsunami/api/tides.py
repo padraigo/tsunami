@@ -3,51 +3,17 @@
 import asyncio
 import base64
 from datetime import datetime
-from pathlib import Path
 
 import numpy as np
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from tsunami.config import get_settings
+from tsunami.bathymetry.land_mask import get_land_mask
 from tsunami.simulation.grid import create_grid
 from tsunami.simulation.tides import generate_tide_frames
 
 router = APIRouter(tags=["tides"])
-
-_land_mask_cache: dict[str, tuple[np.ndarray, np.ndarray]] = {}
-
-
-def _get_land_mask(resolution_km: float) -> tuple[np.ndarray, np.ndarray]:
-    """Get or compute a cached low-res global land mask."""
-    key = f"{resolution_km}"
-    if key in _land_mask_cache:
-        return _land_mask_cache[key]
-
-    cache_dir = Path(get_settings().bathymetry_cache_dir)
-    cache_file = cache_dir / f"land_mask_{resolution_km:g}km.npz"
-
-    if cache_file.exists():
-        data = np.load(str(cache_file))
-        depth, mask = data["depth"], data["mask"]
-        _land_mask_cache[key] = (depth, mask)
-        return depth, mask
-
-    grid = create_grid(lat_min=-80, lat_max=80, lon_min=-180, lon_max=180, resolution_km=resolution_km)
-    try:
-        from tsunami.bathymetry.service import BathymetryService
-        svc = BathymetryService(cache_dir=str(cache_dir))
-        depth = svc.get_bathymetry(grid, source="gebco")
-        depth = np.nan_to_num(depth, nan=0.0, posinf=0.0, neginf=0.0)
-    except Exception:
-        depth = np.ones(grid.depth.shape) * 4000.0
-
-    mask = depth <= 0
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(str(cache_file), depth=depth.astype(np.float32), mask=mask)
-    _land_mask_cache[key] = (depth, mask)
-    return depth, mask
 
 
 class TideComputeRequest(BaseModel):
@@ -66,7 +32,7 @@ async def compute_tides(body: TideComputeRequest):
         resolution_km=body.resolution_km,
     )
 
-    depth, land_mask = await asyncio.to_thread(_get_land_mask, body.resolution_km)
+    depth, land_mask = await asyncio.to_thread(get_land_mask, body.resolution_km)
 
     if depth.shape != grid.depth.shape:
         land_mask = np.zeros(grid.depth.shape, dtype=bool)

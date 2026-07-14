@@ -7,7 +7,7 @@ import numpy as np
 from fastapi import APIRouter, Query
 from fastapi.responses import Response
 
-from tsunami.api.tides import _get_land_mask
+from tsunami.bathymetry.land_mask import get_land_mask
 from tsunami.bathymetry.service import BathymetryService
 from tsunami.config import get_settings
 
@@ -81,7 +81,7 @@ async def global_depth_png(
     """
     from PIL import Image
 
-    depth, _land_mask_arr = await asyncio.to_thread(_get_land_mask, resolution_km)
+    depth, _land_mask_arr = await asyncio.to_thread(get_land_mask, resolution_km)
 
     # Downsample to ~160 rows for reasonable PNG size
     target = 160

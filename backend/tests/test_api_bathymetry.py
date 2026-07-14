@@ -6,15 +6,15 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tsunami.api import tides as tides_module
+from tsunami.bathymetry import land_mask as land_mask_module
 
 
 @pytest.fixture(autouse=True)
 def clear_land_mask_cache():
     """The in-memory land-mask cache is module-level; isolate tests."""
-    tides_module._land_mask_cache.clear()
+    land_mask_module._land_mask_cache.clear()
     yield
-    tides_module._land_mask_cache.clear()
+    land_mask_module._land_mask_cache.clear()
 
 
 async def test_png_rejects_zero_resolution(client):
@@ -64,12 +64,12 @@ async def test_png_width_has_no_wrap_columns(client):
     """Image must span exactly -180..180 — the frontend pins corners there."""
     from PIL import Image
 
-    from tsunami.api.tides import _get_land_mask
+    from tsunami.bathymetry.land_mask import get_land_mask
 
     resp = await client.get("/api/bathymetry/global-depth.png?resolution_km=500")
     img = Image.open(io.BytesIO(resp.content))
 
-    depth, _ = _get_land_mask(500.0)
+    depth, _ = get_land_mask(500.0)
     ny, nx = depth.shape
     sx = max(1, nx // 160)
     expected_width = len(range(0, nx, sx))
@@ -77,10 +77,10 @@ async def test_png_width_has_no_wrap_columns(client):
 
 
 async def test_land_mask_cache_filename_preserves_fraction(app):
-    from tsunami.api.tides import _get_land_mask
+    from tsunami.bathymetry.land_mask import get_land_mask
     from tsunami.config import get_settings
 
-    _get_land_mask(500.5)
+    get_land_mask(500.5)
     cache_dir = Path(get_settings().bathymetry_cache_dir)
     assert (cache_dir / "land_mask_500.5km.npz").exists()
     assert not (cache_dir / "land_mask_500km.npz").exists()
