@@ -72,7 +72,7 @@ async def check_bathymetry(
 
 @router.get("/bathymetry/global-depth.png")
 async def global_depth_png(
-    resolution_km: float = Query(default=100.0),
+    resolution_km: float = Query(default=100.0, ge=10.0, le=1000.0),
 ):
     """Return the global elevation/depth map as a ready-to-use PNG image.
 

@@ -26,7 +26,7 @@ def _get_land_mask(resolution_km: float) -> tuple[np.ndarray, np.ndarray]:
         return _land_mask_cache[key]
 
     cache_dir = Path(get_settings().bathymetry_cache_dir)
-    cache_file = cache_dir / f"land_mask_{int(resolution_km)}km.npz"
+    cache_file = cache_dir / f"land_mask_{resolution_km:g}km.npz"
 
     if cache_file.exists():
         data = np.load(str(cache_file))
@@ -54,7 +54,7 @@ class TideComputeRequest(BaseModel):
     start_datetime: datetime
     duration_hours: float = Field(gt=0, le=48, default=25.0)
     num_frames: int = Field(gt=0, le=200, default=50)
-    resolution_km: float = Field(gt=0, default=100.0)
+    resolution_km: float = Field(ge=10.0, le=1000.0, default=100.0)
 
 
 @router.post("/tides/compute")
