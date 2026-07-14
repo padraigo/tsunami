@@ -3,7 +3,6 @@ import TopBar from './components/TopBar'
 import ControlPanel from './components/ControlPanel'
 import SimulationList from './components/SimulationList'
 import MapView from './components/MapView/MapView'
-import ColorLegend from './components/MapView/ColorLegend'
 import BottomPanel from './components/BottomPanel'
 import ErrorToast from './components/ErrorToast'
 import { useSimulationStore } from './stores/simulationStore'
@@ -27,12 +26,7 @@ export default function App() {
             <SimulationList />
           </div>
         }
-        map={
-          <div className="relative h-full w-full">
-            <MapView />
-            {coarseResult && <ColorLegend />}
-          </div>
-        }
+        map={<MapView />}
         bottom={coarseResult ? <BottomPanel /> : undefined}
       />
       <ErrorToast />

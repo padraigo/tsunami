@@ -8,12 +8,12 @@ const WAVE_STOPS = [
 ]
 
 const DEPTH_STOPS = [
-  { color: '#ffffff', label: '4000+ m elev' },
-  { color: '#e6b440', label: '2000 m elev' },
-  { color: '#b4a028', label: '200 m elev' },
+  { color: '#ffffff', label: '6000+ m elev' },
+  { color: '#e6503c', label: '2000 m elev' },
+  { color: '#b47828', label: '200 m elev' },
   { color: '#50a03c', label: 'Sea level' },
-  { color: '#1eb4ff', label: '200 m depth' },
-  { color: '#0a289b', label: '8000+ m depth' },
+  { color: '#1eb4ff', label: 'Shallow ocean' },
+  { color: '#00289b', label: '8000+ m depth' },
 ]
 
 export default function ColorLegend() {
@@ -28,7 +28,7 @@ export default function ColorLegend() {
       {stops.map((s, i) => (
         <div key={i} className="flex items-center gap-2">
           <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: s.color }} />
-          <span className="text-slate-400">{'label' in s ? s.label : ''}</span>
+          <span className="text-slate-400">{s.label}</span>
         </div>
       ))}
     </div>
